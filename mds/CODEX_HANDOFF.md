@@ -143,6 +143,7 @@ HTML 主脚本里的关键函数：
 - `openQA(id)`：从 `qaGroups` 找问题组并打开 QA 面板。
 - `renderSearch()`：顶部搜索只查 `sourceIndex` 的 `title/topic/file/lines/snippet`。
 - `saveCustomQA()`：保存用户右键新增的自定义 QA 到本地学习状态。
+- `openCustomQAEditor(id)` / `deleteCustomQA(id)`：修改或删除已有自定义 QA。修改只改问题和回答，保留原选中文本与 `anchor`；删除会移除该条记录并刷新对应高亮。
 - `applyLessonHighlights()` / `applySourceHighlights()`：把自定义 QA 的选中文本重新高亮。
 - `exportState()` / `importState()` / `connectStateDir()`：导出、导入或连接 `learning-state/claude-code-walkthrough-state.json`。
 
@@ -191,6 +192,8 @@ HTML 主脚本里的关键函数：
 ```
 
 `customQA[]` 里的旧记录可能没有 `anchor`，页面会继续兼容，但这类旧记录本身无法知道用户当时选中的是第几次出现的同名字符串。
+
+自定义 QA 卡片现在支持修改和删除。修改会原地更新 `question`、`answer`，并追加/覆盖 `updatedAt`；不会改 `text`、`sectionId`、`scope`、`sourceId` 或 `anchor`。如果用户要换绑定位置，应删除后重新选中文字添加。
 
 维护默认内容时不要把个人 `customQA` 写进 `claude-code-qa-data.js`。默认 QA 属于系统预设；右键新增 QA 属于用户学习记录。
 

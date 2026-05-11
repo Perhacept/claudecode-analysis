@@ -792,6 +792,32 @@
       font-size: 15px;
     }
 
+    .qa-card-header {
+      display: flex;
+      align-items: flex-start;
+      justify-content: space-between;
+      gap: 10px;
+      margin-bottom: 8px;
+    }
+
+    .qa-card-header h4 {
+      margin: 0;
+    }
+
+    .custom-qa-actions {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 6px;
+      justify-content: flex-end;
+      flex-shrink: 0;
+    }
+
+    .custom-qa-actions button {
+      padding: 5px 8px;
+      font-size: 12px;
+      line-height: 1.3;
+    }
+
     .qa-card p {
       margin: 7px 0;
     }
@@ -1103,10 +1129,10 @@
     <button id="addQAFromSelection" type="button">添加 QA</button>
   </div>
 
-  <div id="qaEditorBackdrop" class="modal-backdrop" role="dialog" aria-modal="true" aria-label="添加自定义 QA">
+  <div id="qaEditorBackdrop" class="modal-backdrop" role="dialog" aria-modal="true" aria-label="自定义 QA 编辑器">
     <div class="qa-editor">
-      <h3>添加自定义 QA</h3>
-      <p class="small-note">该 QA 会绑定到你选中的文本。后续点击高亮文本即可查看。</p>
+      <h3 id="qaEditorTitle">添加自定义 QA</h3>
+      <p id="qaEditorNote" class="small-note">该 QA 会绑定到你选中的文本。后续点击高亮文本即可查看。</p>
       <div id="selectedPreview" class="selected-preview"></div>
       <div class="field">
         <label for="customQuestion">问题</label>
@@ -1158,6 +1184,7 @@
       progress: readJSON(STORAGE_KEYS.progress, {}),
       customQA: readJSON(STORAGE_KEYS.customQA, []),
       pendingSelection: null,
+      editingCustomQAId: null,
       currentSourceId: null,
       stateFileHandle: null,
       lastQAText: ""
@@ -1265,6 +1292,18 @@
         const qaButton = event.target.closest("[data-qa]");
         if (qaButton) {
           openQA(qaButton.dataset.qa);
+          return;
+        }
+
+        const editCustomQAButton = event.target.closest("[data-edit-custom-qa]");
+        if (editCustomQAButton) {
+          openCustomQAEditor(editCustomQAButton.dataset.editCustomQa);
+          return;
+        }
+
+        const deleteCustomQAButton = event.target.closest("[data-delete-custom-qa]");
+        if (deleteCustomQAButton) {
+          deleteCustomQA(deleteCustomQAButton.dataset.deleteCustomQa);
           return;
         }
 
@@ -1561,6 +1600,8 @@
       const group = qaGroups[id];
       if (!group) return;
       $("#sourcePanel").classList.remove("open");
+      delete $("#qaPanel").dataset.customQa;
+      $("#qaPanel").dataset.qaGroup = id;
       $("#qaTitle").textContent = group.title;
       $("#qaSubtitle").textContent = `${group.ref} · 回答方：NotebookLM`;
       const relatedCustom = appState.customQA.filter(item => {
@@ -1663,6 +1704,8 @@
       const item = appState.customQA.find(qa => qa.id === id);
       if (!item) return;
       $("#sourcePanel").classList.remove("open");
+      delete $("#qaPanel").dataset.qaGroup;
+      $("#qaPanel").dataset.customQa = id;
       $("#qaTitle").textContent = "自定义 QA";
       $("#qaSubtitle").textContent = item.scope === "source" ? `绑定源码：${item.sourceId}` : "绑定讲解文本";
       appState.lastQAText = `选中文本：${item.text}\nQ: ${item.question}\nA: ${item.answer}`;
@@ -1677,14 +1720,33 @@
     }
 
     function renderCustomQA(item) {
+      const createdAt = formatDateTime(item.createdAt);
+      const updatedAt = formatDateTime(item.updatedAt);
+      const meta = updatedAt && updatedAt !== createdAt
+        ? `创建时间：${createdAt || "未知"} · 更新时间：${updatedAt}`
+        : `创建时间：${createdAt || "未知"}`;
       return `
-        <div class="qa-card">
+        <div class="qa-card" data-custom-qa-card="${escapeHTML(item.id)}">
+          <div class="qa-card-header">
+            <h4>自定义 QA</h4>
+            <div class="custom-qa-actions">
+              <button class="secondary-btn" type="button" data-edit-custom-qa="${escapeHTML(item.id)}">修改</button>
+              <button class="danger-btn" type="button" data-delete-custom-qa="${escapeHTML(item.id)}">删除</button>
+            </div>
+          </div>
           <p><strong>选中：</strong>${escapeHTML(item.text)}</p>
           <div class="qa-markdown"><strong>Q：</strong>${formatAnswer(item.question)}</div>
           <div class="answer-text"><strong>A：</strong>${formatAnswer(item.answer)}</div>
-          <p class="small-note">创建时间：${escapeHTML(new Date(item.createdAt).toLocaleString())}</p>
+          <p class="small-note">${escapeHTML(meta)}</p>
         </div>
       `;
+    }
+
+    function formatDateTime(value) {
+      if (!value) return "";
+      const date = new Date(value);
+      if (Number.isNaN(date.getTime())) return "";
+      return date.toLocaleString();
     }
 
     function getCurrentSectionIds() {
@@ -1787,6 +1849,9 @@
     function openQAEditor() {
       hideContextMenu();
       if (!appState.pendingSelection) return;
+      appState.editingCustomQAId = null;
+      $("#qaEditorTitle").textContent = "添加自定义 QA";
+      $("#qaEditorNote").textContent = "该 QA 会绑定到你选中的文本。后续点击高亮文本即可查看。";
       $("#selectedPreview").textContent = appState.pendingSelection.text;
       $("#customQuestion").value = "";
       $("#customAnswer").value = "";
@@ -1794,17 +1859,56 @@
       $("#customQuestion").focus();
     }
 
+    function openCustomQAEditor(id) {
+      const item = appState.customQA.find(qa => qa.id === id);
+      if (!item) return;
+      hideContextMenu();
+      appState.editingCustomQAId = id;
+      appState.pendingSelection = null;
+      $("#qaEditorTitle").textContent = "修改自定义 QA";
+      $("#qaEditorNote").textContent = "这里只修改问题和回答；绑定文本不变。要更换绑定位置，请删除后重新选中文字添加。";
+      $("#selectedPreview").textContent = item.text || "";
+      $("#customQuestion").value = item.question || "";
+      $("#customAnswer").value = item.answer || "";
+      $("#qaEditorBackdrop").classList.add("open");
+      $("#customQuestion").focus();
+    }
+
     function closeQAEditor() {
       $("#qaEditorBackdrop").classList.remove("open");
+      appState.editingCustomQAId = null;
     }
 
     function saveCustomQA() {
       const question = $("#customQuestion").value.trim();
       const answer = $("#customAnswer").value.trim();
-      if (!appState.pendingSelection || !question || !answer) {
+      if (!question || !answer) {
         alert("请填写问题和回答。");
         return;
       }
+
+      if (appState.editingCustomQAId) {
+        const item = appState.customQA.find(qa => qa.id === appState.editingCustomQAId);
+        if (!item) {
+          alert("保存失败：没有找到这条自定义 QA。");
+          closeQAEditor();
+          return;
+        }
+        item.question = question;
+        item.answer = answer;
+        item.updatedAt = new Date().toISOString();
+        saveState();
+        const id = item.id;
+        closeQAEditor();
+        openCustomQA(id);
+        return;
+      }
+
+      if (!appState.pendingSelection) {
+        alert("请先选中文字再添加 QA。");
+        return;
+      }
+
       const item = {
         id: `custom-${Date.now()}-${Math.random().toString(16).slice(2)}`,
         text: appState.pendingSelection.text.slice(0, 1000),
@@ -1823,6 +1927,37 @@
       if (item.scope === "source") applySourceHighlights();
       else applyLessonHighlights();
       openCustomQA(item.id);
+    }
+
+    function deleteCustomQA(id) {
+      const item = appState.customQA.find(qa => qa.id === id);
+      if (!item) return;
+      const question = String(item.question || "").trim();
+      const label = question ? `“${question.slice(0, 60)}${question.length > 60 ? "..." : ""}”` : "这条自定义 QA";
+      if (!confirm(`确认删除 ${label}？删除后高亮标记也会移除。`)) return;
+
+      appState.customQA = appState.customQA.filter(qa => qa.id !== id);
+      if (appState.editingCustomQAId === id) closeQAEditor();
+      saveState();
+      refreshHighlightsForCustomQA(item);
+
+      const qaPanel = $("#qaPanel");
+      if (qaPanel.dataset.customQa === id) {
+        qaPanel.classList.remove("open");
+        delete qaPanel.dataset.customQa;
+        return;
+      }
+      if (qaPanel.dataset.qaGroup) {
+        openQA(qaPanel.dataset.qaGroup);
+      }
+    }
+
+    function refreshHighlightsForCustomQA(item) {
+      if (item.scope === "source") {
+        applySourceHighlights();
+        return;
+      }
+      applyLessonHighlights();
     }
 
     function applyLessonHighlights() {
