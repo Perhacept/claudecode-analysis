@@ -826,6 +826,15 @@
       margin: 2px 0 0;
     }
 
+    .custom-qa-group-actions {
+      display: flex;
+      flex-wrap: wrap;
+      justify-content: flex-end;
+      gap: 6px;
+      flex-shrink: 0;
+    }
+
+    .custom-qa-group-actions button,
     .custom-qa-add-button {
       padding: 5px 8px;
       font-size: 12px;
@@ -1148,6 +1157,10 @@
       }
 
       .custom-qa-actions {
+        justify-content: flex-start;
+      }
+
+      .custom-qa-group-actions {
         justify-content: flex-start;
       }
 
@@ -1476,6 +1489,12 @@
         const qaButton = event.target.closest("[data-qa]");
         if (qaButton) {
           openQA(qaButton.dataset.qa);
+          return;
+        }
+
+        const toggleAllCustomQAButton = event.target.closest("[data-toggle-all-custom-qa]");
+        if (toggleAllCustomQAButton) {
+          toggleAllCustomQAAnswers(toggleAllCustomQAButton);
           return;
         }
 
@@ -2002,7 +2021,7 @@
       return Array.from(indent).reduce((count, ch) => count + (ch === "\t" ? 4 : 1), 0);
     }
 
-    function openCustomQA(id, expandedPairId = "") {
+    function openCustomQA(id) {
       const item = appState.customQA.find(qa => qa.id === id);
       if (!item) return;
       const pairs = normalizeCustomQAPairs(item);
@@ -2019,7 +2038,7 @@
           <h4>绑定文本</h4>
           <p>${escapeHTML(item.text)}</p>
         </div>
-        ${renderCustomQA(item, { expandedPairId })}
+        ${renderCustomQA(item)}
       `;
       $("#qaPanel").classList.add("open");
     }
@@ -2031,7 +2050,7 @@
       delete panel.dataset.activeCustomQa;
     }
 
-    function renderCustomQA(item, options = {}) {
+    function renderCustomQA(item) {
       const pairs = normalizeCustomQAPairs(item);
       const createdAt = formatDateTime(item.createdAt);
       const updatedAt = formatDateTime(item.updatedAt);
@@ -2045,19 +2064,22 @@
               <h4>自定义 QA</h4>
               <p class="small-note custom-qa-group-meta">共 ${pairs.length} 条 QA</p>
             </div>
-            <button class="primary-btn custom-qa-add-button" type="button" data-add-custom-qa-pair="${escapeHTML(item.id)}">添加新一条 QA</button>
+            <div class="custom-qa-group-actions">
+              <button class="secondary-btn" type="button" data-toggle-all-custom-qa>全部收起</button>
+              <button class="primary-btn custom-qa-add-button" type="button" data-add-custom-qa-pair="${escapeHTML(item.id)}">添加新一条 QA</button>
+            </div>
           </div>
           <p><strong>选中：</strong>${escapeHTML(item.text)}</p>
           <div class="custom-qa-list">
-            ${pairs.map((pair, index) => renderCustomQAPair(item, pair, index, options.expandedPairId)).join("")}
+            ${pairs.map((pair, index) => renderCustomQAPair(item, pair, index)).join("")}
           </div>
           <p class="small-note">${escapeHTML(meta)}</p>
         </div>
       `;
     }
 
-    function renderCustomQAPair(item, pair, index, expandedPairId = "") {
-      const isExpanded = pair.id === expandedPairId;
+    function renderCustomQAPair(item, pair, index) {
+      const isExpanded = true;
       const createdAt = formatDateTime(pair.createdAt || item.createdAt);
       const updatedAt = formatDateTime(pair.updatedAt);
       const meta = updatedAt && updatedAt !== createdAt
@@ -2096,6 +2118,37 @@
       answer.hidden = isExpanded;
       const state = $(".custom-qa-answer-state", button);
       if (state) state.textContent = isExpanded ? "展开" : "收起";
+      updateCustomQAAllToggle(entry.closest("[data-custom-qa-card]"));
+    }
+
+    function toggleAllCustomQAAnswers(button) {
+      const card = button.closest("[data-custom-qa-card]");
+      if (!card) return;
+      const answers = $$(".custom-qa-answer", card);
+      const shouldExpand = answers.some(answer => answer.hidden);
+      setCustomQAEntriesExpanded(card, shouldExpand);
+    }
+
+    function setCustomQAEntriesExpanded(card, shouldExpand) {
+      $$(".custom-qa-entry", card).forEach(entry => {
+        const answer = $(".custom-qa-answer", entry);
+        const toggle = $("[data-toggle-custom-qa-answer]", entry);
+        if (!answer || !toggle) return;
+        answer.hidden = !shouldExpand;
+        toggle.setAttribute("aria-expanded", String(shouldExpand));
+        const state = $(".custom-qa-answer-state", toggle);
+        if (state) state.textContent = shouldExpand ? "收起" : "展开";
+      });
+      updateCustomQAAllToggle(card);
+    }
+
+    function updateCustomQAAllToggle(card) {
+      if (!card) return;
+      const button = $("[data-toggle-all-custom-qa]", card);
+      if (!button) return;
+      const answers = $$(".custom-qa-answer", card);
+      const allExpanded = answers.length > 0 && answers.every(answer => !answer.hidden);
+      button.textContent = allExpanded ? "全部收起" : "全部展开";
     }
 
     function formatDateTime(value) {
@@ -2299,9 +2352,8 @@
         syncCustomQALegacyFields(item);
         saveState();
         const id = item.id;
-        const pairId = pair.id;
         closeQAEditor();
-        openCustomQA(id, pairId);
+        openCustomQA(id);
         return;
       }
 
@@ -2331,7 +2383,7 @@
       appState.pendingSelection = null;
       if (item.scope === "source") applySourceHighlights();
       else applyLessonHighlights();
-      openCustomQA(item.id, item.qaItems[0].id);
+      openCustomQA(item.id);
     }
 
     function deleteCustomQAPair(itemId, pairId) {
