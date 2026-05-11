@@ -818,6 +818,83 @@
       line-height: 1.3;
     }
 
+    .custom-qa-group-heading {
+      min-width: 0;
+    }
+
+    .qa-card .custom-qa-group-meta {
+      margin: 2px 0 0;
+    }
+
+    .custom-qa-add-button {
+      padding: 5px 8px;
+      font-size: 12px;
+      line-height: 1.3;
+      white-space: nowrap;
+    }
+
+    .custom-qa-list {
+      display: grid;
+      gap: 8px;
+      margin-top: 10px;
+    }
+
+    .custom-qa-entry {
+      border: 1px solid #e3e8f0;
+      border-radius: 8px;
+      background: #f8fafc;
+      overflow: hidden;
+    }
+
+    .custom-qa-entry-header {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) auto;
+      gap: 8px;
+      align-items: start;
+      padding: 8px;
+    }
+
+    .custom-qa-toggle {
+      width: 100%;
+      min-width: 0;
+      display: grid;
+      grid-template-columns: auto minmax(0, 1fr) auto;
+      gap: 8px;
+      align-items: start;
+      border: 0;
+      background: transparent;
+      color: var(--ink);
+      padding: 0;
+      text-align: left;
+    }
+
+    .custom-qa-index {
+      color: var(--muted);
+      font-size: 12px;
+      font-weight: 760;
+      white-space: nowrap;
+    }
+
+    .custom-qa-question {
+      min-width: 0;
+      overflow-wrap: anywhere;
+      font-weight: 720;
+      line-height: 1.45;
+    }
+
+    .custom-qa-answer-state {
+      color: var(--blue);
+      font-size: 12px;
+      font-weight: 760;
+      white-space: nowrap;
+    }
+
+    .custom-qa-answer {
+      border-top: 1px solid #e3e8f0;
+      padding: 8px;
+      background: #fff;
+    }
+
     .qa-card p {
       margin: 7px 0;
     }
@@ -1066,6 +1143,14 @@
         grid-template-columns: 1fr;
       }
 
+      .custom-qa-entry-header {
+        grid-template-columns: 1fr;
+      }
+
+      .custom-qa-actions {
+        justify-content: flex-start;
+      }
+
       .inspector.expanded {
         left: 20px;
       }
@@ -1227,6 +1312,7 @@
       customQA: readJSON(STORAGE_KEYS.customQA, []),
       pendingSelection: null,
       editingCustomQAId: null,
+      editingCustomQAPairId: null,
       currentSourceId: null,
       stateFileHandle: null,
       lastQAText: ""
@@ -1275,6 +1361,62 @@
           <div class="qa-source-strip-items">${chips}</div>
         </div>
       `;
+    }
+
+    function makeId(prefix) {
+      return `${prefix}-${Date.now()}-${Math.random().toString(16).slice(2)}`;
+    }
+
+    function makeCustomQAPair(question, answer, createdAt = new Date().toISOString(), updatedAt = "") {
+      const pair = {
+        id: makeId("qa"),
+        question,
+        answer,
+        createdAt
+      };
+      if (updatedAt) pair.updatedAt = updatedAt;
+      return pair;
+    }
+
+    function normalizeCustomQAPairs(item) {
+      if (!item) return [];
+      const sourcePairs = Array.isArray(item.qaItems) && item.qaItems.length
+        ? item.qaItems
+        : [{
+          id: `legacy-${item.id}`,
+          question: item.question || "",
+          answer: item.answer || "",
+          createdAt: item.createdAt,
+          updatedAt: item.updatedAt
+        }];
+
+      item.qaItems = sourcePairs
+        .map((pair, index) => ({
+          id: pair.id || `qa-${item.id}-${index + 1}`,
+          question: pair.question || "",
+          answer: pair.answer || "",
+          createdAt: pair.createdAt || item.createdAt || "",
+          updatedAt: pair.updatedAt || ""
+        }))
+        .filter(pair => pair.question || pair.answer);
+
+      syncCustomQALegacyFields(item);
+      return item.qaItems;
+    }
+
+    function syncCustomQALegacyFields(item) {
+      const first = Array.isArray(item.qaItems) && item.qaItems.length ? item.qaItems[0] : null;
+      item.question = first ? first.question : "";
+      item.answer = first ? first.answer : "";
+    }
+
+    function buildCustomQAText(item) {
+      const pairs = normalizeCustomQAPairs(item);
+      const qaText = pairs.map((pair, index) => {
+        const number = index + 1;
+        return `Q${number}: ${pair.question}\nA${number}: ${pair.answer}`;
+      }).join("\n\n");
+      return `选中文本：${item.text || ""}${qaText ? `\n\n${qaText}` : ""}`;
     }
 
     function saveState() {
@@ -1337,15 +1479,33 @@
           return;
         }
 
+        const addCustomQAPairButton = event.target.closest("[data-add-custom-qa-pair]");
+        if (addCustomQAPairButton) {
+          openAddCustomQAPairEditor(addCustomQAPairButton.dataset.addCustomQaPair);
+          return;
+        }
+
         const editCustomQAButton = event.target.closest("[data-edit-custom-qa]");
         if (editCustomQAButton) {
-          openCustomQAEditor(editCustomQAButton.dataset.editCustomQa);
+          openCustomQAEditor(editCustomQAButton.dataset.editCustomQa, editCustomQAButton.dataset.editCustomQaPair);
+          return;
+        }
+
+        const deleteCustomQAPairButton = event.target.closest("[data-delete-custom-qa-pair]");
+        if (deleteCustomQAPairButton) {
+          deleteCustomQAPair(deleteCustomQAPairButton.dataset.customQaId, deleteCustomQAPairButton.dataset.deleteCustomQaPair);
           return;
         }
 
         const deleteCustomQAButton = event.target.closest("[data-delete-custom-qa]");
         if (deleteCustomQAButton) {
           deleteCustomQA(deleteCustomQAButton.dataset.deleteCustomQa);
+          return;
+        }
+
+        const customQAToggle = event.target.closest("[data-toggle-custom-qa-answer]");
+        if (customQAToggle) {
+          toggleCustomQAAnswer(customQAToggle);
           return;
         }
 
@@ -1842,21 +2002,24 @@
       return Array.from(indent).reduce((count, ch) => count + (ch === "\t" ? 4 : 1), 0);
     }
 
-    function openCustomQA(id) {
+    function openCustomQA(id, expandedPairId = "") {
       const item = appState.customQA.find(qa => qa.id === id);
       if (!item) return;
+      const pairs = normalizeCustomQAPairs(item);
       $("#sourcePanel").classList.remove("open");
       delete $("#qaPanel").dataset.qaGroup;
       $("#qaPanel").dataset.activeCustomQa = id;
       $("#qaTitle").textContent = "自定义 QA";
-      $("#qaSubtitle").textContent = item.scope === "source" ? `绑定源码：${item.sourceId}` : "绑定讲解文本";
-      appState.lastQAText = `选中文本：${item.text}\nQ: ${item.question}\nA: ${item.answer}`;
+      $("#qaSubtitle").textContent = item.scope === "source"
+        ? `绑定源码：${item.sourceId} · ${pairs.length} 条 QA`
+        : `绑定讲解文本 · ${pairs.length} 条 QA`;
+      appState.lastQAText = buildCustomQAText(item);
       $("#qaBody").innerHTML = `
         <div class="qa-card">
           <h4>绑定文本</h4>
           <p>${escapeHTML(item.text)}</p>
         </div>
-        ${renderCustomQA(item)}
+        ${renderCustomQA(item, { expandedPairId })}
       `;
       $("#qaPanel").classList.add("open");
     }
@@ -1868,7 +2031,8 @@
       delete panel.dataset.activeCustomQa;
     }
 
-    function renderCustomQA(item) {
+    function renderCustomQA(item, options = {}) {
+      const pairs = normalizeCustomQAPairs(item);
       const createdAt = formatDateTime(item.createdAt);
       const updatedAt = formatDateTime(item.updatedAt);
       const meta = updatedAt && updatedAt !== createdAt
@@ -1877,18 +2041,61 @@
       return `
         <div class="qa-card" data-custom-qa-card="${escapeHTML(item.id)}">
           <div class="qa-card-header">
-            <h4>自定义 QA</h4>
-            <div class="custom-qa-actions">
-              <button class="secondary-btn" type="button" data-edit-custom-qa="${escapeHTML(item.id)}">修改</button>
-              <button class="danger-btn" type="button" data-delete-custom-qa="${escapeHTML(item.id)}">删除</button>
+            <div class="custom-qa-group-heading">
+              <h4>自定义 QA</h4>
+              <p class="small-note custom-qa-group-meta">共 ${pairs.length} 条 QA</p>
             </div>
+            <button class="primary-btn custom-qa-add-button" type="button" data-add-custom-qa-pair="${escapeHTML(item.id)}">添加新一条 QA</button>
           </div>
           <p><strong>选中：</strong>${escapeHTML(item.text)}</p>
-          <div class="qa-markdown"><strong>Q：</strong>${formatAnswer(item.question)}</div>
-          <div class="answer-text"><strong>A：</strong>${formatAnswer(item.answer)}</div>
+          <div class="custom-qa-list">
+            ${pairs.map((pair, index) => renderCustomQAPair(item, pair, index, options.expandedPairId)).join("")}
+          </div>
           <p class="small-note">${escapeHTML(meta)}</p>
         </div>
       `;
+    }
+
+    function renderCustomQAPair(item, pair, index, expandedPairId = "") {
+      const isExpanded = pair.id === expandedPairId;
+      const createdAt = formatDateTime(pair.createdAt || item.createdAt);
+      const updatedAt = formatDateTime(pair.updatedAt);
+      const meta = updatedAt && updatedAt !== createdAt
+        ? `创建时间：${createdAt || "未知"} · 更新时间：${updatedAt}`
+        : `创建时间：${createdAt || "未知"}`;
+      const question = String(pair.question || "").trim() || "未命名问题";
+      return `
+        <div class="custom-qa-entry" data-custom-qa-entry="${escapeHTML(pair.id)}">
+          <div class="custom-qa-entry-header">
+            <button class="custom-qa-toggle" type="button" data-toggle-custom-qa-answer aria-expanded="${isExpanded ? "true" : "false"}">
+              <span class="custom-qa-index">Q${index + 1}</span>
+              <span class="custom-qa-question">${escapeHTML(question)}</span>
+              <span class="custom-qa-answer-state">${isExpanded ? "收起" : "展开"}</span>
+            </button>
+            <div class="custom-qa-actions">
+              <button class="secondary-btn" type="button" data-edit-custom-qa="${escapeHTML(item.id)}" data-edit-custom-qa-pair="${escapeHTML(pair.id)}">修改</button>
+              <button class="danger-btn" type="button" data-custom-qa-id="${escapeHTML(item.id)}" data-delete-custom-qa-pair="${escapeHTML(pair.id)}">删除</button>
+            </div>
+          </div>
+          <div class="custom-qa-answer"${isExpanded ? "" : " hidden"}>
+            <div class="qa-markdown"><strong>Q：</strong>${formatAnswer(pair.question)}</div>
+            <div class="answer-text"><strong>A：</strong>${formatAnswer(pair.answer)}</div>
+            <p class="small-note">${escapeHTML(meta)}</p>
+          </div>
+        </div>
+      `;
+    }
+
+    function toggleCustomQAAnswer(button) {
+      const entry = button.closest("[data-custom-qa-entry]");
+      if (!entry) return;
+      const answer = $(".custom-qa-answer", entry);
+      if (!answer) return;
+      const isExpanded = button.getAttribute("aria-expanded") === "true";
+      button.setAttribute("aria-expanded", String(!isExpanded));
+      answer.hidden = isExpanded;
+      const state = $(".custom-qa-answer-state", button);
+      if (state) state.textContent = isExpanded ? "展开" : "收起";
     }
 
     function formatDateTime(value) {
@@ -1999,26 +2206,51 @@
       hideContextMenu();
       if (!appState.pendingSelection) return;
       appState.editingCustomQAId = null;
+      appState.editingCustomQAPairId = null;
       $("#qaEditorTitle").textContent = "添加自定义 QA";
       $("#qaEditorNote").textContent = "该 QA 会绑定到你选中的文本。后续点击高亮文本即可查看。";
       $("#selectedPreview").textContent = appState.pendingSelection.text;
       $("#customQuestion").value = "";
       $("#customAnswer").value = "";
+      $("#saveCustomQA").textContent = "保存 QA";
       $("#qaEditorBackdrop").classList.add("open");
       $("#customQuestion").focus();
     }
 
-    function openCustomQAEditor(id) {
+    function openAddCustomQAPairEditor(id) {
       const item = appState.customQA.find(qa => qa.id === id);
       if (!item) return;
+      normalizeCustomQAPairs(item);
       hideContextMenu();
       appState.editingCustomQAId = id;
+      appState.editingCustomQAPairId = null;
+      appState.pendingSelection = null;
+      $("#qaEditorTitle").textContent = "添加新一条 QA";
+      $("#qaEditorNote").textContent = "这条 QA 会追加到同一段绑定文本下；绑定文本不变。";
+      $("#selectedPreview").textContent = item.text || "";
+      $("#customQuestion").value = "";
+      $("#customAnswer").value = "";
+      $("#saveCustomQA").textContent = "添加 QA";
+      $("#qaEditorBackdrop").classList.add("open");
+      $("#customQuestion").focus();
+    }
+
+    function openCustomQAEditor(id, pairId) {
+      const item = appState.customQA.find(qa => qa.id === id);
+      if (!item) return;
+      const pairs = normalizeCustomQAPairs(item);
+      const pair = pairs.find(qa => qa.id === pairId) || pairs[0];
+      if (!pair) return;
+      hideContextMenu();
+      appState.editingCustomQAId = id;
+      appState.editingCustomQAPairId = pair.id;
       appState.pendingSelection = null;
       $("#qaEditorTitle").textContent = "修改自定义 QA";
-      $("#qaEditorNote").textContent = "这里只修改问题和回答；绑定文本不变。要更换绑定位置，请删除后重新选中文字添加。";
+      $("#qaEditorNote").textContent = "这里只修改这一条问题和回答；绑定文本不变。要更换绑定位置，请删除后重新选中文字添加。";
       $("#selectedPreview").textContent = item.text || "";
-      $("#customQuestion").value = item.question || "";
-      $("#customAnswer").value = item.answer || "";
+      $("#customQuestion").value = pair.question || "";
+      $("#customAnswer").value = pair.answer || "";
+      $("#saveCustomQA").textContent = "保存修改";
       $("#qaEditorBackdrop").classList.add("open");
       $("#customQuestion").focus();
     }
@@ -2026,6 +2258,8 @@
     function closeQAEditor() {
       $("#qaEditorBackdrop").classList.remove("open");
       appState.editingCustomQAId = null;
+      appState.editingCustomQAPairId = null;
+      $("#saveCustomQA").textContent = "保存 QA";
     }
 
     function saveCustomQA() {
@@ -2043,13 +2277,31 @@
           closeQAEditor();
           return;
         }
-        item.question = question;
-        item.answer = answer;
-        item.updatedAt = new Date().toISOString();
+        const pairs = normalizeCustomQAPairs(item);
+        const now = new Date().toISOString();
+        let pair;
+        if (appState.editingCustomQAPairId) {
+          pair = pairs.find(qa => qa.id === appState.editingCustomQAPairId);
+          if (!pair) {
+            alert("保存失败：没有找到这条问答。");
+            closeQAEditor();
+            return;
+          }
+          pair.question = question;
+          pair.answer = answer;
+          pair.updatedAt = now;
+        } else {
+          pair = makeCustomQAPair(question, answer, now);
+          pairs.push(pair);
+        }
+        item.qaItems = pairs;
+        item.updatedAt = now;
+        syncCustomQALegacyFields(item);
         saveState();
         const id = item.id;
+        const pairId = pair.id;
         closeQAEditor();
-        openCustomQA(id);
+        openCustomQA(id, pairId);
         return;
       }
 
@@ -2058,33 +2310,75 @@
         return;
       }
 
+      const now = new Date().toISOString();
       const item = {
-        id: `custom-${Date.now()}-${Math.random().toString(16).slice(2)}`,
+        id: makeId("custom"),
         text: appState.pendingSelection.text.slice(0, 1000),
         question,
         answer,
+        qaItems: [makeCustomQAPair(question, answer, now)],
         chapterId: appState.pendingSelection.chapterId,
         sectionId: appState.pendingSelection.sectionId,
         scope: appState.pendingSelection.scope,
         sourceId: appState.pendingSelection.sourceId,
         anchor: appState.pendingSelection.anchor,
-        createdAt: new Date().toISOString()
+        createdAt: now
       };
       appState.customQA.push(item);
+      syncCustomQALegacyFields(item);
       saveState();
       closeQAEditor();
+      appState.pendingSelection = null;
       if (item.scope === "source") applySourceHighlights();
       else applyLessonHighlights();
-      openCustomQA(item.id);
+      openCustomQA(item.id, item.qaItems[0].id);
+    }
+
+    function deleteCustomQAPair(itemId, pairId) {
+      const item = appState.customQA.find(qa => qa.id === itemId);
+      if (!item) return;
+      const pairs = normalizeCustomQAPairs(item);
+      const pair = pairs.find(qa => qa.id === pairId);
+      if (!pair) return;
+      const question = String(pair.question || "").trim();
+      const label = question ? `“${question.slice(0, 60)}${question.length > 60 ? "..." : ""}”` : "这条 QA";
+      const isLastPair = pairs.length <= 1;
+      const warning = isLastPair ? "这是该绑定下最后一条 QA，删除后高亮标记也会移除。" : "绑定文本会保留。";
+      if (!confirm(`确认删除 ${label}？${warning}`)) return;
+
+      if (isLastPair) {
+        removeCustomQAItem(item);
+        return;
+      }
+
+      item.qaItems = pairs.filter(qa => qa.id !== pairId);
+      item.updatedAt = new Date().toISOString();
+      syncCustomQALegacyFields(item);
+      if (appState.editingCustomQAId === itemId && appState.editingCustomQAPairId === pairId) closeQAEditor();
+      saveState();
+
+      const qaPanel = $("#qaPanel");
+      if (qaPanel.dataset.activeCustomQa === itemId) {
+        openCustomQA(itemId);
+        return;
+      }
+      if (qaPanel.dataset.qaGroup) {
+        openQA(qaPanel.dataset.qaGroup);
+      }
     }
 
     function deleteCustomQA(id) {
       const item = appState.customQA.find(qa => qa.id === id);
       if (!item) return;
-      const question = String(item.question || "").trim();
-      const label = question ? `“${question.slice(0, 60)}${question.length > 60 ? "..." : ""}”` : "这条自定义 QA";
-      if (!confirm(`确认删除 ${label}？删除后高亮标记也会移除。`)) return;
+      const pairs = normalizeCustomQAPairs(item);
+      const firstQuestion = String(pairs[0] && pairs[0].question || "").trim();
+      const label = firstQuestion ? `“${firstQuestion.slice(0, 60)}${firstQuestion.length > 60 ? "..." : ""}”` : "这组自定义 QA";
+      if (!confirm(`确认删除 ${label}？这会删除该绑定下的 ${pairs.length} 条 QA，并移除高亮标记。`)) return;
+      removeCustomQAItem(item);
+    }
 
+    function removeCustomQAItem(item) {
+      const id = item.id;
       appState.customQA = appState.customQA.filter(qa => qa.id !== id);
       if (appState.editingCustomQAId === id) closeQAEditor();
       saveState();

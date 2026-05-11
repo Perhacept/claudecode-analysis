@@ -142,8 +142,8 @@ HTML 主脚本里的关键函数：
 - `openSource(id)`：从 `sourceIndex` 找条目并打开源码弹窗。
 - `openQA(id)`：从 `qaGroups` 找问题组并打开 QA 面板。
 - `renderSearch()`：顶部搜索只查 `sourceIndex` 的 `title/topic/file/lines/snippet`。
-- `saveCustomQA()`：保存用户右键新增的自定义 QA 到本地学习状态。
-- `openCustomQAEditor(id)` / `deleteCustomQA(id)`：修改或删除已有自定义 QA。修改只改问题和回答，保留原选中文本与 `anchor`；删除会移除该条记录并刷新对应高亮。
+- `saveCustomQA()`：保存用户右键新增的自定义 QA 到本地学习状态；也负责给已有绑定追加新的 QA。
+- `openCustomQAEditor(id, pairId)` / `openAddCustomQAPairEditor(id)` / `deleteCustomQAPair(id, pairId)`：修改、追加或删除已有自定义 QA 绑定下的单条问答。修改只改该条问答的问题和回答，保留原选中文本与 `anchor`；删除最后一条问答时会移除整条绑定记录并刷新对应高亮。
 - `applyLessonHighlights()` / `applySourceHighlights()`：把自定义 QA 的选中文本重新高亮。
 - `exportState()` / `importState()` / `connectStateDir()`：导出、导入或连接 `learning-state/claude-code-walkthrough-state.json`。
 
@@ -193,7 +193,29 @@ HTML 主脚本里的关键函数：
 
 `customQA[]` 里的旧记录可能没有 `anchor`，页面会继续兼容，但这类旧记录本身无法知道用户当时选中的是第几次出现的同名字符串。
 
-自定义 QA 卡片现在支持修改和删除。修改会原地更新 `question`、`answer`，并追加/覆盖 `updatedAt`；不会改 `text`、`sectionId`、`scope`、`sourceId` 或 `anchor`。如果用户要换绑定位置，应删除后重新选中文字添加。
+自定义 QA 卡片现在支持在同一个绑定文本下保存多条问答。新版记录会有 `qaItems` 数组：
+
+```json
+{
+  "id": "custom-...",
+  "text": "文章",
+  "question": "兼容旧版的第一条问题",
+  "answer": "兼容旧版的第一条回答",
+  "qaItems": [
+    {
+      "id": "qa-...",
+      "question": "问题 1",
+      "answer": "回答 1",
+      "createdAt": "ISO 时间",
+      "updatedAt": "ISO 时间，可选"
+    }
+  ],
+  "sectionId": "context-pipeline",
+  "anchor": {}
+}
+```
+
+`question` / `answer` 仍保留为第一条问答的兼容字段；渲染、编辑、复制时以 `qaItems` 为准，没有 `qaItems` 的旧记录会自动按旧字段补成一条问答。卡片顶部的“添加新一条 QA”只追加问答，不改变 `text`、`sectionId`、`scope`、`sourceId` 或 `anchor`。每条问答的答案默认可折叠，便于先概览数量和问题列表。如果用户要换绑定位置，应删除最后一条问答后重新选中文字添加。
 
 维护默认内容时不要把个人 `customQA` 写进 `claude-code-qa-data.js`。默认 QA 属于系统预设；右键新增 QA 属于用户学习记录。
 
