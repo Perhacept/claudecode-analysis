@@ -1,10 +1,32 @@
 {
   "version": 1,
-  "exportedAt": "2026-05-11T03:10:54.036Z",
+  "exportedAt": "2026-05-11T19:42:16.063Z",
   "progress": {},
   "customQA": [
     {
-      "id": "custom-1778468157054-71807caaa80398",
+      "id": "custom-1778501688034-56f2f67a911e48",
+      "text": "源码",
+      "question": "关注？",
+      "answer": "为了理解这种“Harness 包裹模型”的设计哲学，请重点关注以下三个源码模块：\n\n1.  **`src/query.ts` (核心循环与错误扣留机制)**\n    *   **作用**：这是系统的绝对心脏，包含了一个处理 API 请求与错误恢复的 `while(true)` 状态机。\n    *   **Harness 视角**：当大模型 API 返回 `413 prompt_too_long` 或媒体体积过大（如上传了巨大的图片）等致命错误时，这里的代码**绝对不会**将错误直接抛出导致程序崩溃。相反，它会“扣留（Withhold）”这个错误，在后台静默触发上下文折叠或反应式压缩（Reactive Compact），释放 Token 空间后，带着内部重试标记无缝重新发起 API 请求。这就相当于操作系统内核在屏蔽底层硬件的 I/O 故障。\n2.  **`src/services/tools/toolExecution.ts` (执行管道与副作用隔离)**\n    *   **作用**：拦截模型输出的 `tool_use` 块，并将其转化为实际物理操作的 7 步降级管线。\n    *   **Harness 视角**：大模型本身没有任何读写文件的物理能力。当模型输出一个工具调用意图时，这行代码强制执行严格的 Zod Schema 验证、PreToolUse Hook 拦截、Deny-first 的规则校验，甚至将其扔进独立的 OS 级沙盒中运行。模型负责“想”，而这个管道负责“把关”和“执行”。\n3.  **`src/context.ts` (动态上下文的强制隔离)**\n    *   **作用**：负责在向模型发送请求前，搜集当前的工作目录状态、系统时间以及 Git 状态。\n    *   **Harness 视角**：为了死死保住静态 System Prompt 的全局缓存命中率，这部分代码绝对禁止将高频变化的 Git 分支信息或时间戳直接写入系统提示词。它将这些易变状态提取出来，作为“运行时外挂”延迟注入，这体现了 Harness 对底层模型计费与缓存物理机制的极限妥协。",
+      "chapterId": "harness",
+      "sectionId": "harness-boundary",
+      "scope": "lesson",
+      "sourceId": null,
+      "anchor": {
+        "version": 1,
+        "startOffset": 261,
+        "endOffset": 263,
+        "textLength": 2,
+        "containerTextLength": 1478,
+        "contextBefore": "的代码说成没问题。Harness 的任务就是把这种不稳定输出包进确定性的控制面。",
+        "contextAfter": "阅读的三问：这段代码如何控制模型能看见什么？它如何限制模型能做什么？失败、超限或",
+        "scope": "lesson",
+        "containerIndex": 0
+      },
+      "createdAt": "2026-05-11T12:14:48.034Z"
+    },
+    {
+      "id": "custom-1778501716737-8a33a22d3826d",
       "text": "Auto-compact",
       "question": "在四层压缩管线中，Level 3 的 Context Collapse（上下文折叠）和 Level 4 的 Auto Compact（全量压缩）都是生成摘要，它们在底层数据结构和可逆性上有什么本质区别？",
       "answer": "这两者的核心区别在于**是否修改物理历史数据**：\n*   **Context Collapse（读时投影）**：它是一种极其精妙的“虚拟视图”机制。它维护了一个只增不减的 `commit log`，在使用时，它拦截 API 请求并动态生成折叠后的视图发给模型。**它绝对不修改底层的本地 `messages` 数组**，因此原始的颗粒度日志在 REPL 内存和会话文件中完好无损，完全可逆。\n*   **Auto Compact（物理截断）**：这是最后兜底的重量级手段。它通过发起一次独立的 LLM 请求生成全局摘要，随后**不可逆地物理替换掉**底层的旧消息数组。\n*   **工程取舍**：因为 Context Collapse 保留了全部细节，所以它是渐进式、低损耗的；而 Auto Compact 虽然释放空间最大，但会导致最原始的日志永久丢失。两者互斥，系统优先选择精细的 Collapse，只有逼近物理极限时才认命触发 Auto Compact。",
@@ -12,7 +34,196 @@
       "sectionId": "context-pipeline",
       "scope": "lesson",
       "sourceId": null,
-      "createdAt": "2026-05-11T02:55:57.054Z"
+      "anchor": {
+        "version": 1,
+        "startOffset": 280,
+        "endOffset": 292,
+        "textLength": 12,
+        "containerTextLength": 2044,
+        "contextBefore": "pse：读时投影，把历史折叠成当前请求可用的视图，但不直接改写底层本地消息数组。",
+        "contextAfter": "：最昂贵的全量重构，请 LLM 生成摘要边界并替换旧历史，只在前面几层无法回到安",
+        "scope": "lesson",
+        "containerIndex": 1
+      },
+      "createdAt": "2026-05-11T12:15:16.737Z"
+    },
+    {
+      "id": "custom-1778516663481-9e003b272c6578",
+      "text": "这段代码如何控制模型能看见什么",
+      "question": "在 Claude Code 源码中，这段代码是如何控制模型能看见什么的？",
+      "answer": "在普通应用中，开发者通常是简单地把用户的聊天历史拼接成一个长字符串发给模型。但在 Claude Code 中，Harness 实施了极其严苛的**“读时投影”与“上下文工程（Context Engineering）”**，从物理上接管了模型的视野，具体通过以下三种机制控制：\n\n**1 动静隔离墙（缓存前缀保护）**：\n    Harness 在构建模型的“世界观”（System Prompt）时，不会把所有信息混在一起。它通过 `SYSTEM_PROMPT_DYNAMIC_BOUNDARY` 将信息严格切分为两层。模型视野的最前端是强制锁死的全局静态缓存（包含核心安全规则、A-Z排序的内置工具库），Harness 通过维持这部分视野的“绝对静止”，换取高达 90% 的缓存读折扣。\n**2 动态数据的伪装注入（`<system-reminder>`）**：\n    当模型需要“看”到实时环境信息时（如用户刚刚修改的 `CLAUDE.md` 规则、当前的本地系统时间、或是 Git 树的最新状态），Harness 不会去修改系统提示词。相反，它通过 `prependUserContext` 函数，将这些实时情报打包，伪装成一条带有 `<system-reminder>` XML 标签的**用户消息（User Message）**，在每轮请求发起前强行插入到消息队列的末尾。模型以为这是用户在提醒它，实际上是 Harness 在动态喂给它最新的环境切片。\n**3 记忆与历史的视界裁剪（五层压缩管线）**：\n    长对话中，Harness 绝对不允许模型看到原始的无尽日志。在发请求前，`query.ts` 中的四级压缩管线会启动。特别是 Level 3 的 Context Collapse（上下文折叠），它就像是一个“哈哈镜”，在不修改本地底层数组的前提下，在发往 API 时将冗长的旧对话替换为摘要占位符。模型“看”到的其实是一个被 Harness 极度裁剪、浓缩、且专门针对 Token 预算优化过的虚拟视界。",
+      "chapterId": "harness",
+      "sectionId": "harness-boundary",
+      "scope": "lesson",
+      "sourceId": null,
+      "anchor": {
+        "version": 1,
+        "startOffset": 269,
+        "endOffset": 284,
+        "textLength": 15,
+        "containerTextLength": 1478,
+        "contextBefore": "。Harness 的任务就是把这种不稳定输出包进确定性的控制面。源码阅读的三问：",
+        "contextAfter": "？它如何限制模型能做什么？失败、超限或恢复时，它如何把系统带回可继续状态？这也是",
+        "scope": "lesson",
+        "containerIndex": 0
+      },
+      "createdAt": "2026-05-11T16:24:23.481Z",
+      "updatedAt": "2026-05-11T16:31:27.152Z"
+    },
+    {
+      "id": "custom-1778517159007-4008742e0f72",
+      "text": "它如何限制模型能做什么",
+      "question": "代码是如何“限制”模型能做什么的？",
+      "answer": "在早期的 Prompt 工程时代，开发者习惯在系统提示词中写下大量的软约束（如：“你不能删除重要文件”、“在执行前必须三思”）。但 Claude Code 的源码揭示了工业级 Agent 的核心安全准则：**不要用自然语言约束模型，要用物理管线物理切断意图。**\n\nHarness 主要通过以下三个维度的硬核代码来死死卡住模型的行动边界：\n\n**1 执行边界的降级管线（Deny-First Evaluation）**：\n   模型输出的每一段 `tool_use` JSON，都必须强行通过一段多层过滤管线。代码中执行的是严格的**一票否决（Deny-First）**策略：只要企业策略或本地设置中有一条具体的 `deny` 规则命中了当前操作，它就会无条件覆盖所有上层的 `allow`（允许）和 `ask`（弹窗询问）规则。Harness 用机械的 if/else 拦截了模型因幻觉而产生的越权企图。\n**2 复合意图的 AST 拆解粉碎**：\n   大模型经常会通过组合命令来绕过审查，比如输出 `echo ok && rm -rf target`。如果只把这当成一个整体去检查，极易被注入绕过。Harness 中的 `BashTool` 会调用 `tree-sitter` 将这句输出拆解成抽象语法树（AST），提取出里面的每一个最小子命令进行独立校验。只要其中哪怕一个子命令触发了拦截，整条复合命令都会被物理熔断。模型再怎么巧舌如簧，也无法欺骗 AST 解析器。\n**3 消除隐式权力的沙盒收缩**：\n   Harness 将模型的权限收缩到了极点。在多 Agent 协作（AgentTool）或者后台执行任务时，Harness 给子代理（Subagent）装配的权限是重新洗牌后的最小子集（比如 Explore Agent 被强制剥离了 Write 和 Edit 能力）。同时配合沙盒运行时（Sandbox Runtime），在操作系统层面锁死文件访问与网络接口。模型能做的事情，仅限于 Harness 在运行时注入的、被显式授权的那几个特定 API。",
+      "chapterId": "harness",
+      "sectionId": "harness-boundary",
+      "scope": "lesson",
+      "sourceId": null,
+      "anchor": {
+        "version": 1,
+        "startOffset": 285,
+        "endOffset": 296,
+        "textLength": 11,
+        "containerTextLength": 1478,
+        "contextBefore": "种不稳定输出包进确定性的控制面。源码阅读的三问：这段代码如何控制模型能看见什么？",
+        "contextAfter": "？失败、超限或恢复时，它如何把系统带回可继续状态？这也是为什么 Tool 契约、",
+        "scope": "lesson",
+        "containerIndex": 0
+      },
+      "createdAt": "2026-05-11T16:32:39.007Z"
+    },
+    {
+      "id": "custom-1778517560164-51d87b74362de8",
+      "text": "失败、超限或恢复时，它如何把系统带回可继续状态",
+      "question": "失败、超限或恢复时，它如何把系统带回可继续状态？",
+      "answer": "生产级 Agent 绝不能在遇到错误时直接崩溃。Claude Code 通过 **错误扣留（Error Withholding）**、**级联降级管线** 与 **状态机重构** 三步机制，将灾难转化为下一轮的可控输入：\n\n**1 绝不外抛的错误扣留（Error Withholding）：**\n    源码注释明确指出，当系统收到 API 返回的 HTTP 413 `prompt_too_long` 或媒体体积超限错误时，**绝对不能向外抛出或 `yield` 给下游消费者**（如 VS Code 扩展或终端 UI）,。一旦抛出，整个会话进程将立刻终止。系统会在内部强制“静默扣留”该错误。\n **2 级联恢复与渐进式剥离：**\n    扣留错误后，核心循环会在后台触发级联恢复策略。对于 413 错误，系统会先尝试排空（drain）处于挂起状态的上下文折叠视图（Context Collapse）；若仍不足，则触发反应式压缩（Reactive Compact），强行生成对话摘要释放空间,,。若是图片体积错误，则精准定位并剥离导致超载的特定媒体块,。\n**3 通过 Continue 站点安全重构状态：**\n    在清理出 Token 空间后，系统必须安全地恢复执行。`queryLoop` 并不是使用凌乱的局部变量更新，而是通过 **7 个预定义的 Continue 站点** 实现伪不可变跃迁,,,。系统会将压缩后的新消息数组、保留的重试标记（如 `hasAttemptedReactiveCompact: true`，以防陷入无限重试死循环）一次性全量赋值给 `State` 结构体，然后显式调用 `continue` 指令跳回 `while(true)` 循环的顶部,,,。\n    通过这种机制，系统无缝且安全地带着新的干净状态重新发起 API 请求，用户在终端看到的仅仅是几秒钟的延迟，而不是一次灾难性的程序崩溃。",
+      "chapterId": "harness",
+      "sectionId": "harness-boundary",
+      "scope": "lesson",
+      "sourceId": null,
+      "anchor": {
+        "version": 1,
+        "startOffset": 297,
+        "endOffset": 320,
+        "textLength": 23,
+        "containerTextLength": 1478,
+        "contextBefore": "控制面。源码阅读的三问：这段代码如何控制模型能看见什么？它如何限制模型能做什么？",
+        "contextAfter": "？这也是为什么 Tool 契约、权限模式、queryLoop、压缩、Hook、M",
+        "scope": "lesson",
+        "containerIndex": 0
+      },
+      "createdAt": "2026-05-11T16:39:20.164Z"
+    },
+    {
+      "id": "custom-1778517806437-ce9783d47eb22",
+      "text": "Harness 的 ROI",
+      "question": "Harness 的 ROI是什么？",
+      "answer": "**ROI（Return on Investment，投资回报率）**是指一项投资所带来的收益与投资成本之间的比率。在软件工程和系统设计中，它用来衡量团队投入的开发时间、计算资源和维护成本，究竟能换来多少系统能力、业务价值和用户体验的提升。\n\n**Harness 的 ROI（工程线束的投资回报率）**，在 AI Agent 的语境下，指的是**在底座大模型（推理内核）能力固定的前提下，通过建设外围的物理基础设施（如上下文工程、工具系统、权限漏斗、状态恢复等）所带来的系统成功率、可用性和商业可行性的巨大增益**。\n\n根据数十万行生产级源码（如 Claude Code）的分析，Harness 的极高 ROI 具体体现在以下四个硬核工程维度：\n\n**1. 以极低的时间成本换取能力的大幅跃升（能力 ROI）**\n量化数据揭示了一个残酷的现实：单纯依靠升级底层大模型或进行模型微调，通常需要耗费数月的时间和极其昂贵的算力成本，但在基准测试（如 Terminal Bench 2.0）上的得分提升往往只有 3% 到 5%。\n相反，**把精力投资在优化 Harness 上，回报率呈指数级差异**：\n* 仅仅优化外围的架构（如 LangChain 的案例），就能在基准测试中带来 14% 的能力增益。\n* 仅仅花 30 分钟配置一个优质的 `CLAUDE.md` 文件（属于 Harness 中的静态上下文工程），就能将 Agent 在特定项目上的表现提升 20% 到 40%。\n* 这证明了模型能力是“给定的条件”，而 Harness 才是开发者真正能以小博大的杠杆。\n\n**2. 将“不可靠的概率内核”转化为“高可用的工业系统”（稳定性 ROI）**\n大模型 API 在物理属性上就像一块极度不可靠的硬件：它会超时、会返回 413 错误（上下文超限）、会产生行号幻觉，甚至会在不运行测试的情况下自信断言代码没问题。\n在 Harness（如 Agent Loop 和状态机）上编写复杂的防御代码，其 ROI 体现在**直接掐断了系统的死亡螺旋**。例如，当遇到 413 错误时，Harness 的 `Error Withholding`（错误扣留）机制绝不向外抛出导致崩溃，而是在后台静默触发上下文折叠或压缩，腾出空间后无缝重试。这约 500 行的兜底代码虽然只占 1%，但它的回报是防止了数百次可能导致用户流失的会话崩溃。\n\n**3. 极限压榨 API 成本（商业可行性 ROI）**\n无限长对话对上下文的消耗是惊人的。如果不做 Harness 优化，一次包含大量代码阅读和重构的长会话可能耗费 50 到 100 美元的 Token 成本。\n但在 Harness 中投资设计极致的 **Prompt Caching（提示词缓存）系统**，回报是商业模式的成立。通过强制将内置工具按 A-Z 字母排序、隔离动态 MCP 工具、滥用 `<system-reminder>` 标签进行动静隔离，以及引入 `cache_edits` 旁路删除黑科技，Harness 死死保住了静态字节前缀。这种架构设计的投入，换来了高达 90% 的缓存读折扣，将原本上百美元的会话成本硬生生压到了十几美元。\n\n**4. 提供安全底线与长效治理（治理与可维护性 ROI）**\n正如你整理的材料所述，将 98.4% 的代码投入在 UI、遥测和 Session 等“外围杂项”上，是因为它们决定了 Agent 能否真正落地：\n* **UI 层的回报：** 终端使用非阻塞的流式渲染，确保了当模型疯狂输出或尝试执行危险 `rm -rf` 时，用户能够无延迟地按下 `Esc` 及时打断，这提供了物理级的人类控制感。\n* **遥测（Telemetry）的回报：** 业界统计约 78% 的 AI 错误是静默失败的。深达 5 层的环境指纹追踪，能精准定位诸如“在特定 WSL2 环境下的文件监听死锁”这种罕见的长尾 bug。\n* **Session Storage 的回报：** 基于 JSONL 的持久化文件，保障了系统崩溃后能随时恢复断点，或者在探索失败时 `fork` 新分支，积累了极具价值的跨轮次记忆。\n\n**总结来说，Harness 的 ROI 揭示了 Agent 时代的第一性原理：** 在工业级应用中，不要沉迷于“把模型调得更聪明”，而是要“建立让模型即使犯错也能安全恢复的物理管线”。这 98.4% 的线束代码投入，就是将 AI 从“脆弱的实验室玩具”转化为“可靠的生产力工具”所能获得的最高工程回报。",
+      "chapterId": "harness",
+      "sectionId": "harness-loc",
+      "scope": "lesson",
+      "sourceId": null,
+      "anchor": {
+        "version": 1,
+        "startOffset": 326,
+        "endOffset": 339,
+        "textLength": 13,
+        "containerTextLength": 1533,
+        "contextBefore": "工具代码本身只是一部分，更大的成本在让工具安全、可观测、可恢复地运行。这解释了 ",
+        "contextAfter": "。底座模型对多数开发者是给定条件；你真正能优化的是上下文注入、工具 schema",
+        "scope": "lesson",
+        "containerIndex": 1
+      },
+      "createdAt": "2026-05-11T16:43:26.437Z"
+    },
+    {
+      "id": "custom-1778518285857-123cc0a29b11",
+      "text": "为什么一个只有模型调用、没有工具权限和恢复管线的项目，即使回答看起来聪明，也很难称为生产级 Agent",
+      "question": "为什么一个只有模型调用、没有工具权限和恢复管线的项目，即使回答看起来聪明，也很难称为生产级 Agent？",
+      "answer": "在大模型时代，单靠聪明的提示词（Prompt）和直接的模型 API 调用，只能构建出“实验室里的脆弱玩具”。在真实的生产环境中，底层的大模型 API 在物理属性上就像一块**极度不可靠的硬件**：它会随时网络超时，会返回 413 `prompt_too_long` 上下文溢出错误，会遗忘距离较远的旧上下文，会产生行号幻觉，甚至会因为大模型固有的“确认偏误”（Confirmation Bias），在没有执行任何验证的情况下自信地断言代码是正确的。\n\n一个只有模型调用，缺乏工具权限管线和异常恢复机制的项目，之所以无法被称为“生产级 Agent”，其核心原因可以归结为以下四个工程与物理维度的缺失：\n\n**1. 缺乏错误扣留与级联恢复，系统极易陷入崩溃螺旋**\n在长周期的开发会话中，API 报错是不可避免的常态。当用户上传了体积惊人的文件，或者工具输出导致 Token 瞬间超出上下文窗口时，普通项目会直接将报错抛给下游消费者（如 IDE 或终端），导致整个会话立刻闪退、任务中断。\n生产级的 Agent Loop 会实施极其严格的**错误扣留（Error Withholding）**机制。它绝不向外抛出中间态错误，而是在后台静默拦截报错，并触发级联降级策略（如：排空上下文折叠视图、触发反应式压缩 Reactive Compact、精准剥离导致超限的特定大图等），腾出空间后带着重试标记无缝重新发起请求。没有这套宏观状态机的兜底，Agent 根本无法存活到复杂任务的终点。\n\n**2. 缺乏“默认失效”（Fail-Closed）的权限防线，物理执行极度危险**\n大模型本身没有任何操作物理环境的能力，它的意图必须通过工具落地。仅仅做模型调用的项目通常缺乏严密的执行边界控制。工业级 Agent 的工具与权限系统遵循**默认拒绝（Deny-first）**和**默认失效（Fail-closed）**的最高安全准则。\n*   **防幻觉脏写**：大模型极易“凭着聊天的记忆”直接盲改文件，导致行号错位。生产级工具（如 FileEditTool）强制实施“写前必读（Read-before-write）”断言，若当前内存中没有文件的最新快照，会物理拦截编辑请求，强迫模型先调用读取工具，切断脏写风险。\n*   **复合命令的粉碎拦截**：为了防范命令注入或幻觉（例如恶意构造 `echo ok && rm -rf /`），生产级防线会通过 AST（抽象语法树）将复杂的 Shell 指令拆解为最小子命令进行逐个校验。一旦触碰红线，整条命令会被瞬间物理熔断。没有纵深防御管线，等于给了基于概率的不可靠模型一台裸机的最高权限。\n\n**3. 缺乏架构级的缓存保卫战，API 成本与延迟将彻底失控**\nAgent 在长任务中会迅速积累几万到十几万 Token 的历史日志。如果不做精细的上下文工程，一个长对话会话可能耗费 50 到 100 美元；但通过极限压榨 Prompt Caching（提示词缓存），成本可以被硬生生压到 10 到 19 美元。\n*   生产级系统为了**死死保住静态前缀**的高命中率，会将内置工具强制按字母 A-Z 排序，且绝对禁止将高频变化的 Git 状态或时间戳写入全局 System Prompt，而是打包伪装成末尾的 User Message 动态注入。\n*   在面临上下文压力必须清理旧日志（如冗长的 `tool_result`）时，生产系统会使用 `cache_edits`（旁路缓存编辑）等黑科技，通过 API 让服务端直接跳过某些区块，而不去修改本地消息数组的字节顺序，从而保证前面数万 Token 的缓存前缀 100% 存活。简单的模型调用在长对话中只会面临缓存全盘失效、响应龟速和天价账单。\n\n**4. 工业级代码规模的现实：1.6% 与 98.4% 定律**\n对 51 万行生产级 Agent（如 Claude Code）源码进行逆向分析揭示了一个冷酷的现实：**真正用于处理 AI 决策推理的代码仅占约 1.6%，剩余的 98.4% 全部是用于运行的基础设施（Harness/工程线束）**。\n单纯升级底座模型，在某些复杂任务上的成功率提升可能只有个位数；但通过优化 Harness（如改进上下文组装、完善工具验证规则、部署安全沙盒），可以带来高达 14% 甚至 20% 的直接能力增益。\n\n模型决定了 Agent 理论上的“智商上限”，但**工程线束（Harness）决定了它在真实世界中的“可用性下限”**。一个没有工具权限、没有压缩管线和恢复机制的项目，就像一台塞满了强大发动机、却没有刹车片、减震器和底盘传动的赛车。生产级 Agent 的真谛并不在于写出多么神奇的提示词，而在于**如何用那 98% 的确定性代码，去安全受控地包裹住占 2% 的、基于概率的智能核心**。",
+      "chapterId": "harness",
+      "sectionId": "harness-loc",
+      "scope": "lesson",
+      "sourceId": null,
+      "anchor": {
+        "version": 1,
+        "startOffset": 590,
+        "endOffset": 641,
+        "textLength": 51,
+        "containerTextLength": 1533,
+        "contextBefore": " JSONL 决定崩溃后能否恢复，配置兼容决定系统能否在企业环境长期演化。小检查",
+        "contextAfter": "？\n        \n          扩展带读\n          这一节用",
+        "scope": "lesson",
+        "containerIndex": 1
+      },
+      "createdAt": "2026-05-11T16:51:25.857Z"
+    },
+    {
+      "id": "custom-1778518459050-7945f5e53a489",
+      "text": "Prompt Cache",
+      "question": "Prompt Cache是如何实现的？如果个人要复刻一个的话，要怎么做？",
+      "answer": "Prompt Caching（提示词缓存）的底层实现并不是简单地保存一段文本或者缓存最终的回答结果，而是**对大模型计算过程中的中间张量（KV Cache）进行物理缓存**。\n\n如果你想理解它的原理并复刻一套类似的机制，我们需要从“底层物理原理”和“应用层工程实践”两个维度来拆解。\n\n### 一、 Prompt Cache 的底层是如何实现的？\n\n大语言模型（Transformer架构）在读取提示词时，底层的物理过程如下：\n\n**1. 注意力机制与 KV 矩阵的计算**\n当模型读取一个 Token 时，它会运行注意力（Attention）机制。在这个过程中，每个 Token 会生成三个向量：**Query（查询）、Key（键）和 Value（值）**。\n为了处理新的 Token，模型需要计算该 Token 的 Query，并将其与之前所有 Token 的 Key 进行比较，然后根据关联度对 Value 进行加权求和。\n\n**2. 自回归特性的前缀匹配（Prefix Matching）**\nTransformer 的计算是**自回归（Autoregressive）**的：第 500 个 Token 的计算只依赖于第 1 到 499 个 Token，而绝对不会受到第 501 个 Token 的影响。\n这意味着，只要你的提示词前缀保持**绝对的字节级一致**，前 499 个 Token 的 Key 和 Value 矩阵就是完全相同的。\n\n**3. GPU VRAM 中的物理存储（KV Cache）**\nAnthropic 的服务器并没有缓存你的提示词文本，它在服务器上保存的是这些**巨大的数值张量（Key 和 Value 矩阵），它们直接驻留在 GPU 显存（VRAM）中**。\n当你发送一个请求时，服务器会对你的提示词前缀进行哈希（Hash）计算。如果匹配到已存在的哈希值，服务器会将这几百 MB 甚至 GB 的张量直接加载到模型的注意力层，模型就像刚刚读完了这些文字一样，直接从断点处开始继续计算。\n\n这也是为什么触发缓存需要满足**严格的前缀一致性**，因为哪怕前缀中改变了一个大小写字母，该位置之后的所有 KV 矩阵都将彻底作废，必须重新计算,。\n\n---\n\n### 二、 如果个人要复刻，要怎么做？\n\n个人复刻 Prompt Cache 可以分为两个层面：**应用层复刻（搭 Agent Harness）** 和 **底层基建复刻（自己部署大模型）**。\n\n#### 方案 A：应用层复刻（基于 API 构建极致省钱的 Agent）\n如果你使用类似 Claude 的 API 来写自己的 Agent（类似复刻 Claude Code），你需要构建一套极度抠门的“上下文管线（Context Harness）”，死死保住静态前缀：\n\n1. **分离动静上下文，工具强制排序**\n   将所有静态信息（角色定义、核心规则、工具定义）放在最前面。把所有可能变化的工具（如外部 MCP 工具）或者不需要每次出现的工具剔除，或者把内部工具按字母 A-Z 严格排序，以保证只要你不删减核心工具，这部分前缀永远不变,。\n\n2. **利用 `<system-reminder>` 注入动态变量**\n   **绝对不要把时间戳（如 `new Date()`）或动态 Git 状态写在 System Prompt 顶部**,。\n   你应该将其伪装成普通的 User Message（例如用 `<system-reminder>` XML 标签包裹），追加在历史消息的最末尾发送。这样前面几万 Token 的系统规则和工具设定就能 100% 命中缓存。\n\n3. **设置显式缓存断点 (Cache Breakpoints)**\n   在代码中，将 `cache_control: {\"type\": \"ephemeral\"}` 标记打在静态内容（如 System Prompt 和 Tool Definitions）的最后一个 Block 上,。这会告诉 API：“请把这里的 KV 矩阵缓存在 GPU 里，5分钟内我还会来读取”,。\n\n4. **复用前缀来做上下文压缩（Compaction）**\n   当对话历史太长需要摘要时，不要写一个全新的简短 Prompt。你应该**原封不动地带上原有的 System Prompt 和对话历史**，只在最后加一句“请总结这段对话”,。因为前缀完全一致，这个处理几十万 Token 历史的请求会直接命中缓存，你只需要为最后那一句指令和模型输出的摘要付钱，享受 90% 的折扣。\n\n5. **使用 API 级的旁路删除（Cache Edits）**\n   如果积累了大量多余的工具输出（如大段的 grep 日志），不要在本地消息数组中删除它。向 API 发送类似于 `{\"type\": \"cache_edits\", \"edits\": [{\"type\": \"delete\", \"cache_reference\": \"tool_use_id\"}]}` 的指令，让服务端在读取 KV Cache 时跳过这部分。本地数据不变，前缀不断层，缓存继续命中,。\n\n#### 方案 B：底层基建复刻（本地部署开源模型）\n如果你是想在自己的服务器上用开源模型（如 Llama 3、Qwen）真正实现 KV Cache 共享服务：\n\n1. **使用支持 Prompt Caching 的推理框架**\n   你可以使用 **vLLM**、**SGLang** 或 **llama.cpp** 等开源推理引擎。现代推理框架已经内置了 Prefix Caching（前缀缓存）或者 RadixAttention 技术。\n2. **管理 Radix Tree（基数树）结构**\n   你需要实现一个基于 Radix Tree 的请求调度器。当多个请求到来时，系统对 Prompt 进行 Token 化，并将 Token 序列放入树结构中进行匹配，找出最长的公共前缀，从而复用对应的 KV 张量。\n3. **显存（VRAM）分配与 TTL 淘汰机制**\n   KV 缓存极其消耗显存。你需要实现 PagedAttention（分页注意力机制），将显存切分为固定大小的 Block。同时，设定类似于 API 的 5 分钟 TTL（Time-To-Live）淘汰策略。当显存不足时，采用 LRU（最近最少使用）算法淘汰最旧的 KV Cache Block 以释放显存。\n\n**缓存应用**\n只要请求的 Token 前缀保持绝对一致，KV Cache 就可以在底层被完美复用。\n\n*（注：以下关于 vLLM 引擎的具体机制名称与启动参数等工程细节。在实际部署时，建议参考 vLLM 的官方文档进行独立验证。）*\n\n如果你使用 vLLM 部署开源模型，实现 KV Cache 复用的机制通常被称为 **Automatic Prefix Caching (APC，自动前缀缓存)**。它的实际使用体验甚至比调用 API 更加“全自动”，具体运作逻辑如下：\n\n**1. 自动的最长前缀匹配 (Radix Tree)**\n在调用商业 API 时，开发者往往需要手动设置缓存断点（例如 Anthropic 的 `cache_control` 标记）。而在 vLLM 中，系统会在 GPU 显存底层自动维护一棵基数树（Radix Tree）。当多个请求进入 vLLM 调度器时，系统会自动将它们的 Prompt 进行 Token 化，并在基数树中自动寻找**最长的公共前缀**。系统会自动把这些公共前缀对应的 KV Cache 物理块（Blocks）映射给新请求，完全不需要开发者在代码里做任何手动标记。\n\n**2. 极限压榨并发吞吐量**\n正如我们在“动静隔离”架构中讨论的物理原理：只要你将几万字的静态规则（System Prompt）、项目背景（RAG 检索出来的不变文档）或工具说明死死锁定在请求的最前端，并将高频变化的动态数据（如用户当前的输入、变化的时间戳）放在最后，vLLM 就会自动复用这些静态前缀的张量计算结果。这不仅能让首字输出延迟（TTFT）从几秒降到毫秒级，更能成倍提升这台 GPU 服务器的并发吞吐能力。\n\n**3. 显存物理约束与 LRU 淘汰**\nKV 缓存本质上是极其消耗 GPU 显存（VRAM）的庞大浮点数矩阵。vLLM 基于 PagedAttention 技术对这些矩阵进行分页管理。当并发请求激增导致显存快被打满时，vLLM 会触发类似于操作系统的缓存淘汰机制（通常是 LRU，即最近最少使用算法）。它会把那些长时间没有新请求来“匹配”的旧前缀缓存悄悄清理掉，腾出物理显存空间。\n\n**4. 部署时的开启条件**\n在实际的工程部署中，vLLM 通常需要你显式地开启这一特性。例如，在启动服务进程时增加 `--enable-prefix-caching` 参数。开启后，调度器才会开始接管并构建用于前缀匹配的树结构。\n\n**总结来说：** 你用 vLLM 部署，相当于自己在本地搭建了一套类似 Claude API 的缓存基础设施。只要你在应用层写代码时，严格遵守前缀不变的纪律，vLLM 就会在底层自动帮你共享 KV Cache，达成极高的计算性价比。",
+      "chapterId": "harness",
+      "sectionId": "harness-physical-lines",
+      "scope": "lesson",
+      "sourceId": null,
+      "anchor": {
+        "version": 1,
+        "startOffset": 83,
+        "endOffset": 95,
+        "textLength": 12,
+        "containerTextLength": 1622,
+        "contextBefore": "都会显得像过度设计；带着这些约束阅读，源码里的怪异行为才有解释。缓存第一性原理：",
+        "contextAfter": " 依赖字节级前缀匹配。内置工具 A-Z 排序并固定在 MCP 工具之前、Syst",
+        "scope": "lesson",
+        "containerIndex": 2
+      },
+      "createdAt": "2026-05-11T16:54:19.050Z",
+      "updatedAt": "2026-05-11T19:27:18.645Z"
+    },
+    {
+      "id": "custom-1778528235999-fe4aa6dbd0f1e",
+      "text": "Auto/YOLO",
+      "question": "详细解释一下auto/yolo",
+      "answer": "在 Claude Code 的源码中，**Auto 模式**与 **YOLO 分类器（YOLO Classifier）** 是支撑其权限系统（Permission System）与安全边界的最硬核设计之一。它们直接对应了总结的“对抗 LLM 固有缺陷”这条物理暗线。\n\n简单来说，**YOLO 分类器是一个独立于主模型之外的“AI 安全审查员”**。当用户开启 `auto`（自动）权限模式时，系统不再频繁弹窗打断用户，而是把审批权交给这个独立的分类器。\n\n### 1. 为什么叫 YOLO？解决什么痛点？\n“YOLO” 是开发者社区的黑话（You Only Live Once），通常代指“不管三七二十一，直接干”。在 Agent 中，让 AI 自动执行高危操作（如运行 Bash 脚本）是非常“YOLO”的行为。\nAnthropic 引入它的原因在于**“审批疲劳（Approval Fatigue）”**：数据表明，如果每个操作都弹窗，人类用户最终会无脑点击“同意”（通过率高达 93%）。既然人类的审核不可靠，不如构建一个不知疲倦的、双重检查的 AI 审查系统，这就是位于 `src/utils/permissions/yoloClassifier.ts` 的核心作用。\n\n### 2. YOLO 分类器的“两阶段”精巧设计\n为了平衡 API 成本、延迟和安全性，YOLO 分类器不是傻笨地对每个动作都去调用昂贵的大模型，而是设计了**两阶段漏斗（Two-Stage Pipeline）**加**快速通道（Fast Path）**：\n\n*   **特权快速通道（Safe-tool Allowlist）**：对于 `Read`、`Glob`、`Grep` 等纯只读工具，或者在当前工作目录（CWD）内的常规文件编辑，系统会直接跳过 API 调用，秒级放行，这节省了约 15%~35% 的无谓审查。\n*   **阶段 1：Fast 分类器**：对于需要审查的操作（比如常规的写操作或普通的终端命令），系统先调用一个更小、更快的模型（如 Claude Haiku）。它只做初步的判断，如果评估风险低（High confidence + shouldBlock=false），直接放行。\n*   **阶段 2：Thinking 分类器**：对于极其危险的边界操作（比如涉及未知的 Bash 命令），如果 Fast 分类器“拿不准（Low confidence）”，就会升级拉起一个更大、带深度思考能力的大模型（如 Claude Opus/Sonnet）。它会结合完整的对话历史和工具输入做二次研判。如果还是拿不准，才会降级为向用户弹窗（`ask`）。\n\n### 3. 对抗 LLM 固有缺陷的核心：熔断机制（Circuit Breaker）\n这是你提到“防止模型换语法反复试探”的核心。大模型有一个致命的缺陷——**固执与死循环**。\n如果主模型生成了一个高危命令（比如 `rm -rf /`），被 YOLO 分类器拦截了，主模型通常不会放弃，它会产生一种幻觉：“可能是我的语法不对”，然后换成 `rm -rf /*` 或 `sudo rm -rf` 继续重试。如果没有限制，这会导致 Agent 陷入“尝试-被拒-重试”的死亡螺旋，瞬间烧光用户的 Token 预算。\n\n为了物理掐断这种螺旋，YOLO 分类器内置了**连续拒绝追踪（Denial Tracking）**：\n*   **硬性熔断阈值**：如果在 `auto` 模式下，YOLO 分类器**连续拒绝了主模型 3 次**，或者在单个会话中**总计拒绝了 20 次**，分类器就会触发“熔断”。\n*   **强制降级**：熔断发生后，系统会强行剥夺 AI 的自动审批权，从“自动拒绝”降级为“弹出 UI 确认对话框”，强制让人类介入接管。在无头（Headless）模式下，则会直接抛出 `AbortError` 终止整个 Agent。\n\n### 4. 架构哲学：“永远不要让运动员当裁判”\nYOLO 分类器的存在，确立了 Claude Code 中极其重要的一个安全不变量（Security Invariant）：**审查者与行动者必须物理隔离**。\n\n在一些初级的 Agent 项目中，开发者通常在 System Prompt 里写一句：“请评估你接下来要执行的动作是否安全”。这种做法毫无意义，因为 LLM 有极强的“确认偏误（Confirmation Bias）”，它自己生成的命令，它自己永远觉得是安全的。\nClaude Code 的做法是：主模型（Actor）只管输出 `tool_use`，系统拦截这个输出后，背着主模型，偷偷把 payload 发给 YOLO 分类器（Reviewer）进行独立审判。主模型无法操纵分类器的判断，这就从架构层面弥补了 LLM 的安全幻觉。\n\n---\n\n**Q：在全自动运行（Auto 模式）下，如果大模型产生幻觉，发疯似地执行危险的 Bash 命令，系统会崩溃或造成破坏吗？**\n**A：** 不会。Auto 模式并非给了大模型裸机权限，而是引入了名为 \"YOLO Classifier\" 的独立 AI 裁判。主模型每生成一个高危意图，都会被系统拦截并交给这个“AI 裁判”进行两阶段审查。更关键的是，系统内置了**熔断机制（Circuit Breaker）**。如果大模型因为幻觉，换着语法反复尝试危险命令并被连续拒绝 3 次，系统会物理切断大模型的自动控制权，强制弹出弹窗呼叫人类介入。这完美诠释了 Harness 工程的作用：不信任大模型本身的克制力，用机械的计数器和独立的审查通道给智能戴上物理枷锁。",
+      "chapterId": "harness",
+      "sectionId": "harness-physical-lines",
+      "scope": "lesson",
+      "sourceId": null,
+      "anchor": {
+        "version": 1,
+        "startOffset": 294,
+        "endOffset": 303,
+        "textLength": 9,
+        "containerTextLength": 1622,
+        "contextBefore": "ileEditTool 写前必须证明存在当前文件的 readFileState；",
+        "contextAfter": " 分类器连续拒绝会熔断，防止模型换语法反复试探；验证 Agent 必须给出实际测",
+        "scope": "lesson",
+        "containerIndex": 2
+      },
+      "createdAt": "2026-05-11T19:37:15.999Z"
+    },
+    {
+      "id": "custom-1778528529951-8240fa4159fab8",
+      "text": "验证 Agent",
+      "question": "详细阐述“验证 Agent 必须给出实际测试输出”",
+      "answer": "在大模型 Agent 的开发中，“大模型总是倾向于偷懒和盲目自信”是一个极其致命的工程痛点。提到的“验证 Agent 必须给出实际测试输出”，正是 Claude Code 源码中为了对抗这一痛点而设计的**最硬核的防线之一**。\n\n在大语言模型（LLM）的固有缺陷中，存在着严重的**“确认偏误（Confirmation Bias）”**与**“逃避劳动”**倾向。当主模型刚刚写完一段代码，如果你直接问它“这段代码有 bug 吗？”，它极大概率会直接回复“代码看起来没问题（Looks good to me）”或者“测试已通过”，然后试图蒙混过关结束任务。它不想去真正调用工具运行测试，因为它“觉得自己写的是对的”。\n\n为了在物理层面掐断这种“AI 幻觉与自我欺骗”，Claude Code 的 Harness（工程线束）为专门的**Verification Agent（验证代理）**设计了极其严格的四大物理枷锁：\n\n### 1. ~120 行的“反自我欺骗”专属系统指令\n在 `src/tools/AgentTool/builtInAgents.ts` 的源码中，Verification Agent 拥有整个系统中**最长、最严厉的专属 System Prompt 之一（约 120 行）**。\n这段指令并没有讲什么大道理，而是直接把 LLM 最喜欢用来“糊弄人”的套话列成了反面教材黑名单。指令中明确点出了 LLM 常见的逃避模式——绝对不允许说“代码看起来正确（code looks correct）”或“假设测试已经通过了（tests passed）”。\n\n### 2. 物理证据的强制断言（Evidence-based Assertion）\nHarness 强行规定了验证成功与否的**唯一合法标准**：不能是基于文本的逻辑推理，**必须是实际执行的物理输出**。\n指令强制要求：任何“没有问题”的结论，都必须以**实际调用 Bash 工具执行的测试命令（如 `npm test`、`pytest`、`cargo check`）**以及**真实的终端标准输出（stdout/stderr）报错信息**作为唯一证据。\n如果验证 Agent 试图在没有调用 Bash 工具跑测试的情况下输出“验证通过”的文本，它就是在违反自己的最高系统准则。\n\n### 3. Task 系统的强制拦截与自动触发\n这是最体现 Harness“不信任主模型”的地方。主模型有时甚至会懒到根本不想唤起验证 Agent。\n在源码的 `TaskUpdateTool.ts` 中，隐藏着一个精妙的安全拦截机制。源码注释写道：“*You just closed out 3+ tasks and none of them was a verification step. Before writing your final summary, spawn the verification agent...*”（你刚刚关闭了 3 个以上的任务，但没有一个是验证步骤。在写最终总结前，去生成验证代理...）。\n这意味着，如果主模型（Main Agent）连续干完了活，却试图绕过验证直接向用户报告成功，Harness 会在底层硬性拦截，**强制主模型必须先拉起 Verification Agent 进行独立审查，然后才能将结果呈现给用户**。\n\n### 4. 独立上下文的“交叉盲审”\n为了彻底消除主模型的“创造者偏见（认为自己写的代码肯定对）”，Verification Agent 被设计为在完全隔离的子上下文中运行。\n它不会继承主模型写代码时的“心路历程”，它是一个冷酷的、带着对抗性视角的第三方审查员。并且它被配置为带有 `background: true` 标记，这意味着它始终在后台异步运行，不会阻塞主对话和用户的 UI 界面。\n\n### 总结：为什么这属于“物理暗线”？\n如果脱离了“对抗 LLM 固有缺陷”这条物理暗线，我们可能会觉得给一个子 Agent 写 120 行 prompt，还要搞强制拦截，简直是过度设计。\n\n但带着这条暗线去读源码就会恍然大悟：**Harness 工程师深刻理解大模型是一台“概率生成机器”，它会为了追求最大概率的完结 token 而编造结果。** 因此，“验证 Agent 必须给出实际测试输出”不仅仅是一条 Prompt，而是一套由**“黑名单指令 + 强制工具调用 + 状态机拦截 + 独立沙盒执行”**组成的物理防线，硬生生地把概率猜测从文件系统中拦截了出去。",
+      "chapterId": "harness",
+      "sectionId": "harness-physical-lines",
+      "scope": "lesson",
+      "sourceId": null,
+      "anchor": {
+        "version": 1,
+        "startOffset": 327,
+        "endOffset": 335,
+        "textLength": 8,
+        "containerTextLength": 1622,
+        "contextBefore": "eState；Auto/YOLO 分类器连续拒绝会熔断，防止模型换语法反复试探；",
+        "contextAfter": " 必须给出实际测试输出，而不是一句看起来没问题。灾难恢复与错误扣留：遇到 413",
+        "scope": "lesson",
+        "containerIndex": 2
+      },
+      "createdAt": "2026-05-11T19:42:09.951Z"
     }
   ],
   "level": "advanced",
