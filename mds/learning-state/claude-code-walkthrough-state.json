@@ -1,0 +1,20 @@
+{
+  "version": 1,
+  "exportedAt": "2026-05-11T03:10:54.036Z",
+  "progress": {},
+  "customQA": [
+    {
+      "id": "custom-1778468157054-71807caaa80398",
+      "text": "Auto-compact",
+      "question": "在四层压缩管线中，Level 3 的 Context Collapse（上下文折叠）和 Level 4 的 Auto Compact（全量压缩）都是生成摘要，它们在底层数据结构和可逆性上有什么本质区别？",
+      "answer": "这两者的核心区别在于**是否修改物理历史数据**：\n*   **Context Collapse（读时投影）**：它是一种极其精妙的“虚拟视图”机制。它维护了一个只增不减的 `commit log`，在使用时，它拦截 API 请求并动态生成折叠后的视图发给模型。**它绝对不修改底层的本地 `messages` 数组**，因此原始的颗粒度日志在 REPL 内存和会话文件中完好无损，完全可逆。\n*   **Auto Compact（物理截断）**：这是最后兜底的重量级手段。它通过发起一次独立的 LLM 请求生成全局摘要，随后**不可逆地物理替换掉**底层的旧消息数组。\n*   **工程取舍**：因为 Context Collapse 保留了全部细节，所以它是渐进式、低损耗的；而 Auto Compact 虽然释放空间最大，但会导致最原始的日志永久丢失。两者互斥，系统优先选择精细的 Collapse，只有逼近物理极限时才认命触发 Auto Compact。",
+      "chapterId": "context",
+      "sectionId": "context-pipeline",
+      "scope": "lesson",
+      "sourceId": null,
+      "createdAt": "2026-05-11T02:55:57.054Z"
+    }
+  ],
+  "level": "advanced",
+  "lastChapter": "harness"
+}

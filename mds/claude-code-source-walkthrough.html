@@ -1,0 +1,2086 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Claude Code 源码循序渐进带读</title>
+  <style>
+    :root {
+      --bg: #f7f8fa;
+      --panel: #ffffff;
+      --panel-soft: #f1f5f9;
+      --ink: #172033;
+      --muted: #667085;
+      --line: #d9dee7;
+      --blue: #2563eb;
+      --blue-soft: #e8efff;
+      --green: #0f766e;
+      --green-soft: #e4f4f1;
+      --amber: #a16207;
+      --amber-soft: #fff4d6;
+      --red: #b42318;
+      --code-bg: #111827;
+      --code-ink: #e5e7eb;
+      --shadow: 0 14px 42px rgba(15, 23, 42, 0.16);
+    }
+
+    * {
+      box-sizing: border-box;
+    }
+
+    html {
+      scroll-behavior: smooth;
+    }
+
+    body {
+      margin: 0;
+      background: var(--bg);
+      color: var(--ink);
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif;
+      line-height: 1.68;
+      letter-spacing: 0;
+      user-select: text;
+    }
+
+    button,
+    input,
+    textarea,
+    select {
+      font: inherit;
+    }
+
+    button {
+      cursor: pointer;
+    }
+
+    .topbar {
+      position: sticky;
+      top: 0;
+      z-index: 30;
+      display: grid;
+      grid-template-columns: minmax(240px, 1fr) auto minmax(260px, 420px);
+      gap: 16px;
+      align-items: center;
+      padding: 14px 20px;
+      border-bottom: 1px solid var(--line);
+      background: rgba(255, 255, 255, 0.96);
+      backdrop-filter: blur(12px);
+    }
+
+    .brand {
+      display: flex;
+      flex-direction: column;
+      gap: 2px;
+      min-width: 0;
+    }
+
+    .brand-title {
+      margin: 0;
+      font-size: 18px;
+      line-height: 1.2;
+      font-weight: 760;
+      color: var(--ink);
+    }
+
+    .brand-subtitle {
+      color: var(--muted);
+      font-size: 12px;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+    .difficulty {
+      display: inline-grid;
+      grid-template-columns: repeat(3, 1fr);
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      background: var(--panel-soft);
+      overflow: hidden;
+    }
+
+    .difficulty button {
+      min-width: 66px;
+      border: 0;
+      border-right: 1px solid var(--line);
+      background: transparent;
+      color: var(--muted);
+      padding: 7px 10px;
+      font-size: 13px;
+    }
+
+    .difficulty button:last-child {
+      border-right: 0;
+    }
+
+    .difficulty button.active {
+      background: var(--panel);
+      color: var(--blue);
+      font-weight: 720;
+    }
+
+    .search-wrap {
+      position: relative;
+      display: flex;
+      gap: 8px;
+      align-items: center;
+    }
+
+    .source-search {
+      width: 100%;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      background: #fff;
+      color: var(--ink);
+      padding: 8px 10px;
+      outline: none;
+    }
+
+    .source-search:focus {
+      border-color: var(--blue);
+      box-shadow: 0 0 0 3px var(--blue-soft);
+    }
+
+    .search-results {
+      position: absolute;
+      top: 42px;
+      right: 0;
+      width: min(520px, 82vw);
+      max-height: 420px;
+      overflow: auto;
+      display: none;
+      padding: 8px;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      background: var(--panel);
+      box-shadow: var(--shadow);
+      z-index: 60;
+    }
+
+    .search-results.open {
+      display: block;
+    }
+
+    .search-hit {
+      width: 100%;
+      display: block;
+      text-align: left;
+      border: 0;
+      border-bottom: 1px solid var(--line);
+      background: transparent;
+      padding: 10px;
+      color: var(--ink);
+    }
+
+    .search-hit:last-child {
+      border-bottom: 0;
+    }
+
+    .search-hit small {
+      display: block;
+      color: var(--muted);
+      margin-top: 2px;
+      font-size: 12px;
+    }
+
+    .workspace {
+      display: grid;
+      grid-template-columns: 286px minmax(0, 1fr) 298px;
+      gap: 0;
+      min-height: calc(100vh - 68px);
+    }
+
+    .sidebar,
+    .study-rail {
+      border-right: 1px solid var(--line);
+      background: #fff;
+    }
+
+    .study-rail {
+      border-right: 0;
+      border-left: 1px solid var(--line);
+    }
+
+    .sidebar-inner,
+    .rail-inner {
+      position: sticky;
+      top: 69px;
+      height: calc(100vh - 69px);
+      overflow: auto;
+      padding: 16px;
+    }
+
+    .nav-title,
+    .rail-title {
+      margin: 0 0 10px;
+      font-size: 13px;
+      color: var(--muted);
+      font-weight: 760;
+    }
+
+    .chapter-nav {
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+    }
+
+    .nav-button {
+      width: 100%;
+      display: grid;
+      grid-template-columns: 22px minmax(0, 1fr) auto;
+      align-items: center;
+      gap: 8px;
+      text-align: left;
+      border: 1px solid transparent;
+      border-radius: 8px;
+      background: transparent;
+      padding: 8px;
+      color: var(--ink);
+    }
+
+    .nav-button:hover {
+      background: var(--panel-soft);
+    }
+
+    .nav-button.active {
+      border-color: #bcd1ff;
+      background: var(--blue-soft);
+      color: #1d4ed8;
+    }
+
+    .nav-index {
+      color: var(--muted);
+      font-size: 12px;
+      font-weight: 720;
+    }
+
+    .nav-label {
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+      font-size: 13px;
+      font-weight: 680;
+    }
+
+    .nav-count {
+      color: var(--muted);
+      font-size: 12px;
+    }
+
+    .main {
+      min-width: 0;
+      padding: 26px 34px 72px;
+      background: var(--bg);
+    }
+
+    .content-shell {
+      max-width: 1030px;
+      margin: 0 auto;
+    }
+
+    .hero {
+      padding: 24px 0 22px;
+      border-bottom: 1px solid var(--line);
+    }
+
+    .eyebrow {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      margin-bottom: 8px;
+      color: var(--green);
+      font-size: 13px;
+      font-weight: 760;
+    }
+
+    .hero h2,
+    .chapter h2 {
+      margin: 0 0 10px;
+      font-size: 30px;
+      line-height: 1.22;
+      letter-spacing: 0;
+    }
+
+    .hero p,
+    .chapter-intro {
+      margin: 0;
+      color: #3b4558;
+      max-width: 850px;
+    }
+
+    .route-grid {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 12px;
+      margin: 20px 0;
+    }
+
+    .route-card {
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      background: #fff;
+      padding: 14px;
+      text-align: left;
+    }
+
+    .route-card:hover {
+      border-color: #adc5ff;
+      box-shadow: 0 8px 26px rgba(37, 99, 235, 0.08);
+    }
+
+    .route-card strong {
+      display: block;
+      margin-bottom: 5px;
+      font-size: 15px;
+    }
+
+    .route-card span {
+      color: var(--muted);
+      font-size: 13px;
+    }
+
+    .section {
+      padding: 22px 0;
+      border-bottom: 1px solid var(--line);
+    }
+
+    .section-header {
+      display: flex;
+      gap: 12px;
+      justify-content: space-between;
+      align-items: flex-start;
+      margin-bottom: 10px;
+    }
+
+    .section h3 {
+      margin: 0;
+      font-size: 20px;
+      line-height: 1.35;
+    }
+
+    .section-meta {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+      margin-top: 8px;
+    }
+
+    .pill {
+      display: inline-flex;
+      align-items: center;
+      gap: 5px;
+      border: 1px solid var(--line);
+      border-radius: 999px;
+      background: #fff;
+      color: var(--muted);
+      font-size: 12px;
+      padding: 3px 8px;
+      white-space: nowrap;
+    }
+
+    .complete-toggle {
+      display: inline-flex;
+      align-items: center;
+      gap: 7px;
+      white-space: nowrap;
+      color: var(--muted);
+      font-size: 13px;
+      user-select: none;
+    }
+
+    .complete-toggle input {
+      width: 16px;
+      height: 16px;
+      accent-color: var(--green);
+    }
+
+    .section-body p {
+      margin: 10px 0;
+    }
+
+    .section-body ul,
+    .section-body ol {
+      margin: 10px 0 10px 20px;
+      padding: 0;
+    }
+
+    .section-body li {
+      margin: 4px 0;
+    }
+
+    .section-body code,
+    .qa-card code {
+      border: 1px solid #d7dce5;
+      border-radius: 5px;
+      background: #eef2f7;
+      padding: 1px 5px;
+      color: #263143;
+      font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+      font-size: 0.92em;
+    }
+
+    .inline-action {
+      border: 0;
+      background: transparent;
+      padding: 0 2px;
+      color: var(--blue);
+      text-decoration: underline;
+      text-underline-offset: 3px;
+      font-weight: 700;
+    }
+
+    .source-trigger {
+      color: var(--green);
+    }
+
+    .qa-trigger {
+      color: var(--blue);
+    }
+
+    .learning-check {
+      margin-top: 14px;
+      border-left: 4px solid var(--amber);
+      background: var(--amber-soft);
+      padding: 10px 12px;
+      color: #5f4102;
+      border-radius: 0 8px 8px 0;
+    }
+
+    .learning-check strong {
+      display: block;
+      margin-bottom: 3px;
+    }
+
+    .deep-dive {
+      margin-top: 18px;
+      border-top: 1px solid var(--line);
+      padding-top: 16px;
+    }
+
+    .deep-label {
+      display: inline-flex;
+      align-items: center;
+      margin-bottom: 8px;
+      border-radius: 999px;
+      background: #eef2f7;
+      color: #344054;
+      padding: 3px 9px;
+      font-size: 12px;
+      font-weight: 760;
+    }
+
+    .lesson-columns {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 12px;
+      margin-top: 12px;
+    }
+
+    .teach-block {
+      border-left: 3px solid var(--line);
+      background: rgba(255, 255, 255, 0.74);
+      padding: 10px 12px;
+      min-width: 0;
+    }
+
+    .teach-block h4 {
+      margin: 0 0 6px;
+      color: #263143;
+      font-size: 14px;
+      line-height: 1.35;
+    }
+
+    .teach-block ul,
+    .teach-block ol {
+      margin-top: 6px;
+      margin-bottom: 0;
+    }
+
+    .source-reading-list {
+      display: grid;
+      gap: 8px;
+      margin: 8px 0 0;
+      padding: 0;
+      list-style: none;
+    }
+
+    .source-reading-list li {
+      margin: 0;
+      border-bottom: 1px solid #eef1f5;
+      padding-bottom: 7px;
+    }
+
+    .source-reading-list li:last-child {
+      border-bottom: 0;
+      padding-bottom: 0;
+    }
+
+    .read-source {
+      border: 0;
+      background: transparent;
+      color: var(--green);
+      padding: 0;
+      text-align: left;
+      text-decoration: underline;
+      text-underline-offset: 3px;
+      font-weight: 760;
+    }
+
+    .practice-line {
+      margin-top: 12px;
+      border-left: 4px solid var(--green);
+      background: var(--green-soft);
+      color: #164e49;
+      border-radius: 0 8px 8px 0;
+      padding: 10px 12px;
+    }
+
+    .practice-line strong {
+      display: block;
+      margin-bottom: 3px;
+    }
+
+    .source-strip {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+      margin-top: 14px;
+    }
+
+    .source-chip {
+      border: 1px solid #b7ded8;
+      border-radius: 999px;
+      background: var(--green-soft);
+      color: var(--green);
+      padding: 5px 9px;
+      font-size: 12px;
+      font-weight: 720;
+    }
+
+    .qa-chip {
+      border-color: #bfd0ff;
+      background: var(--blue-soft);
+      color: var(--blue);
+    }
+
+    .qa-source-strip {
+      display: grid;
+      gap: 8px;
+      margin: 10px 0 12px;
+      border: 1px solid #c9e7e2;
+      border-radius: 8px;
+      background: #f7fbfa;
+      padding: 10px;
+    }
+
+    .qa-source-strip-label {
+      color: var(--muted);
+      font-size: 12px;
+      font-weight: 760;
+    }
+
+    .qa-source-strip-items {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+    }
+
+    .progress-box {
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      background: #fff;
+      padding: 14px;
+      margin-bottom: 14px;
+    }
+
+    .progress-track {
+      height: 8px;
+      border-radius: 999px;
+      background: #e5e7eb;
+      overflow: hidden;
+      margin: 10px 0 8px;
+    }
+
+    .progress-fill {
+      height: 100%;
+      width: 0;
+      border-radius: 999px;
+      background: linear-gradient(90deg, #2563eb, #0f766e);
+      transition: width 0.2s ease;
+    }
+
+    .progress-detail {
+      display: flex;
+      justify-content: space-between;
+      gap: 8px;
+      color: var(--muted);
+      font-size: 12px;
+    }
+
+    .rail-actions {
+      display: grid;
+      grid-template-columns: 1fr;
+      gap: 8px;
+      margin-top: 12px;
+    }
+
+    .secondary-btn,
+    .primary-btn,
+    .danger-btn {
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      background: #fff;
+      color: var(--ink);
+      padding: 8px 10px;
+      font-size: 13px;
+      font-weight: 700;
+    }
+
+    .primary-btn {
+      border-color: #bfd0ff;
+      background: var(--blue);
+      color: #fff;
+    }
+
+    .danger-btn {
+      border-color: #fecaca;
+      color: var(--red);
+    }
+
+    .small-note {
+      color: var(--muted);
+      font-size: 12px;
+      line-height: 1.55;
+    }
+
+    .review-list {
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+      margin-top: 8px;
+    }
+
+    .review-item {
+      border-left: 3px solid var(--line);
+      padding-left: 10px;
+      color: #445066;
+      font-size: 13px;
+    }
+
+    .inspector {
+      position: fixed;
+      top: 84px;
+      right: 20px;
+      bottom: 20px;
+      z-index: 80;
+      width: min(560px, calc(100vw - 40px));
+      display: none;
+      grid-template-rows: auto minmax(0, 1fr);
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      background: #fff;
+      box-shadow: var(--shadow);
+      overflow: hidden;
+    }
+
+    .inspector.open {
+      display: grid;
+    }
+
+    .inspector.expanded {
+      left: 320px;
+      width: auto;
+    }
+
+    .inspector-header {
+      display: flex;
+      align-items: flex-start;
+      justify-content: space-between;
+      gap: 12px;
+      border-bottom: 1px solid var(--line);
+      padding: 14px;
+      background: #fff;
+    }
+
+    .inspector-title {
+      min-width: 0;
+    }
+
+    .inspector-title strong {
+      display: block;
+      line-height: 1.3;
+    }
+
+    .inspector-title small {
+      display: block;
+      margin-top: 3px;
+      color: var(--muted);
+      overflow-wrap: anywhere;
+    }
+
+    .inspector-actions {
+      display: flex;
+      gap: 6px;
+      align-items: center;
+      flex-shrink: 0;
+    }
+
+    .icon-btn {
+      width: 32px;
+      height: 32px;
+      display: inline-grid;
+      place-items: center;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      background: #fff;
+      color: var(--ink);
+      font-weight: 760;
+    }
+
+    .inspector-body {
+      overflow: auto;
+      padding: 14px;
+      min-height: 0;
+    }
+
+    .source-facts {
+      display: grid;
+      gap: 8px;
+      margin-bottom: 12px;
+    }
+
+    .fact-row {
+      display: grid;
+      grid-template-columns: 82px minmax(0, 1fr);
+      gap: 8px;
+      border-bottom: 1px solid #eef1f5;
+      padding-bottom: 6px;
+      font-size: 13px;
+    }
+
+    .fact-row span:first-child {
+      color: var(--muted);
+    }
+
+    pre {
+      margin: 0;
+      border-radius: 8px;
+      background: var(--code-bg);
+      color: var(--code-ink);
+      padding: 14px;
+      overflow: auto;
+      line-height: 1.55;
+      tab-size: 2;
+    }
+
+    pre code {
+      font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+      font-size: 13px;
+      white-space: pre;
+    }
+
+    .qa-card {
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      padding: 12px;
+      margin-bottom: 10px;
+      background: #fff;
+    }
+
+    .qa-card h4 {
+      margin: 0 0 8px;
+      font-size: 15px;
+    }
+
+    .qa-card p {
+      margin: 7px 0;
+    }
+
+    .answer-placeholder {
+      border-left: 3px solid #bfd0ff;
+      background: var(--blue-soft);
+      padding: 8px 10px;
+      border-radius: 0 8px 8px 0;
+      color: #294574;
+    }
+
+    .answer-text {
+      border-left: 3px solid var(--green);
+      background: var(--green-soft);
+      padding: 9px 11px;
+      border-radius: 0 8px 8px 0;
+      color: #19433d;
+    }
+
+    .answer-text p {
+      margin: 7px 0;
+    }
+
+    .answer-text ul,
+    .answer-text ol,
+    .qa-markdown ul,
+    .qa-markdown ol {
+      margin: 7px 0 7px 20px;
+      padding-left: 18px;
+    }
+
+    .answer-text li,
+    .qa-markdown li {
+      margin: 5px 0;
+    }
+
+    .qa-markdown p {
+      margin: 7px 0;
+    }
+
+    .custom-qa-highlight {
+      border-bottom: 2px solid #f59e0b;
+      background: rgba(245, 158, 11, 0.14);
+      cursor: pointer;
+    }
+
+    .context-menu {
+      position: fixed;
+      display: none;
+      z-index: 120;
+      min-width: 156px;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      background: #fff;
+      box-shadow: var(--shadow);
+      overflow: hidden;
+    }
+
+    .context-menu.open {
+      display: block;
+    }
+
+    .context-menu button {
+      width: 100%;
+      border: 0;
+      background: #fff;
+      text-align: left;
+      padding: 10px 12px;
+      color: var(--ink);
+    }
+
+    .context-menu button:hover {
+      background: var(--panel-soft);
+    }
+
+    .modal-backdrop {
+      position: fixed;
+      inset: 0;
+      display: none;
+      align-items: center;
+      justify-content: center;
+      z-index: 110;
+      background: rgba(15, 23, 42, 0.32);
+      padding: 24px;
+    }
+
+    .modal-backdrop.open {
+      display: flex;
+    }
+
+    .qa-editor {
+      width: min(720px, 100%);
+      max-height: 90vh;
+      overflow: auto;
+      border-radius: 8px;
+      background: #fff;
+      border: 1px solid var(--line);
+      box-shadow: var(--shadow);
+      padding: 16px;
+    }
+
+    .qa-editor h3 {
+      margin: 0 0 10px;
+    }
+
+    .selected-preview {
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      background: var(--panel-soft);
+      padding: 10px;
+      max-height: 120px;
+      overflow: auto;
+      color: #344054;
+      font-size: 13px;
+      margin-bottom: 12px;
+      white-space: pre-wrap;
+    }
+
+    .field {
+      display: grid;
+      gap: 5px;
+      margin: 10px 0;
+    }
+
+    .field label {
+      color: var(--muted);
+      font-size: 13px;
+      font-weight: 720;
+    }
+
+    .field input,
+    .field textarea {
+      width: 100%;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      padding: 9px 10px;
+      outline: none;
+    }
+
+    .field textarea {
+      min-height: 126px;
+      resize: vertical;
+      line-height: 1.6;
+    }
+
+    .modal-actions {
+      display: flex;
+      justify-content: flex-end;
+      gap: 8px;
+      margin-top: 12px;
+    }
+
+    body[data-level="beginner"] .level-intermediate,
+    body[data-level="beginner"] .level-advanced,
+    body[data-level="intermediate"] .level-advanced {
+      display: none;
+    }
+
+    .visually-hidden {
+      position: absolute;
+      width: 1px;
+      height: 1px;
+      padding: 0;
+      margin: -1px;
+      overflow: hidden;
+      clip: rect(0, 0, 0, 0);
+      white-space: nowrap;
+      border: 0;
+    }
+
+    @media (max-width: 1180px) {
+      .topbar {
+        grid-template-columns: 1fr;
+      }
+
+      .workspace {
+        grid-template-columns: 240px minmax(0, 1fr);
+      }
+
+      .study-rail {
+        display: none;
+      }
+    }
+
+    @media (max-width: 820px) {
+      .workspace {
+        grid-template-columns: 1fr;
+      }
+
+      .sidebar {
+        display: none;
+      }
+
+      .main {
+        padding: 18px;
+      }
+
+      .route-grid {
+        grid-template-columns: 1fr;
+      }
+
+      .lesson-columns {
+        grid-template-columns: 1fr;
+      }
+
+      .inspector.expanded {
+        left: 20px;
+      }
+    }
+  </style>
+</head>
+<body data-level="beginner">
+  <header class="topbar">
+    <div class="brand">
+      <h1 class="brand-title">Claude Code 源码循序渐进带读</h1>
+      <div class="brand-subtitle">总结稿 + 本地源码索引 + 可追加 QA 的交互学习页</div>
+    </div>
+    <div class="difficulty" aria-label="难度调节">
+      <button type="button" data-level="beginner">新手</button>
+      <button type="button" data-level="intermediate">进阶</button>
+      <button type="button" data-level="advanced">资深</button>
+    </div>
+    <div class="search-wrap">
+      <input id="sourceSearch" class="source-search" type="search" placeholder="搜索源码文件、函数或主题，例如 queryLoop / Hook / Memory">
+      <div id="searchResults" class="search-results" aria-live="polite"></div>
+    </div>
+  </header>
+
+  <div class="workspace">
+    <aside class="sidebar">
+      <div class="sidebar-inner">
+        <p class="nav-title">学习章节</p>
+        <nav id="chapterNav" class="chapter-nav" aria-label="章节导航"></nav>
+      </div>
+    </aside>
+
+    <main class="main">
+      <div id="app" class="content-shell"></div>
+    </main>
+
+    <aside class="study-rail">
+      <div class="rail-inner">
+        <div class="progress-box">
+          <p class="rail-title">手动学习进度</p>
+          <div class="progress-track"><div id="progressFill" class="progress-fill"></div></div>
+          <div id="progressDetail" class="progress-detail"></div>
+          <div class="rail-actions">
+            <button id="connectStateDir" class="secondary-btn" type="button">连接记录文件夹</button>
+            <button id="exportState" class="secondary-btn" type="button">导出记录 JSON</button>
+            <button id="importStateButton" class="secondary-btn" type="button">导入记录 JSON</button>
+            <input id="importStateFile" class="visually-hidden" type="file" accept="application/json,.json">
+            <button id="clearState" class="danger-btn" type="button">清空本地学习记录</button>
+          </div>
+          <p id="stateModeNote" class="small-note">默认保存到浏览器本地记录。支持的浏览器可连接一个文件夹，将记录同步为 JSON。</p>
+        </div>
+
+        <div class="progress-box">
+          <p class="rail-title">本章读法</p>
+          <div id="chapterReview" class="review-list"></div>
+        </div>
+
+        <div class="progress-box">
+          <p class="rail-title">右键 QA</p>
+          <p class="small-note">在讲解区或源码弹窗中选中文字，右键选择“添加 QA”。保存后，该段文字会被标记，下次点击可查看自定义问答。</p>
+        </div>
+      </div>
+    </aside>
+  </div>
+
+  <section id="sourcePanel" class="inspector" aria-label="源码弹窗">
+    <div class="inspector-header">
+      <div class="inspector-title">
+        <strong id="sourceTitle">源码</strong>
+        <small id="sourceSubtitle"></small>
+      </div>
+      <div class="inspector-actions">
+        <button id="copySource" class="icon-btn" type="button" title="复制源码片段">C</button>
+        <button id="expandSource" class="icon-btn" type="button" title="放大/还原">□</button>
+        <button id="closeSource" class="icon-btn" type="button" title="关闭">×</button>
+      </div>
+    </div>
+    <div class="inspector-body">
+      <div class="source-facts">
+        <div class="fact-row"><span>文件位置</span><strong id="sourceFile"></strong></div>
+        <div class="fact-row"><span>关键行数</span><strong id="sourceLines"></strong></div>
+        <div class="fact-row"><span>学习点</span><strong id="sourceTopic"></strong></div>
+      </div>
+      <pre><code id="sourceSnippet"></code></pre>
+    </div>
+  </section>
+
+  <section id="qaPanel" class="inspector" aria-label="QA 面板">
+    <div class="inspector-header">
+      <div class="inspector-title">
+        <strong id="qaTitle">QA</strong>
+        <small id="qaSubtitle"></small>
+      </div>
+      <div class="inspector-actions">
+        <button id="copyQA" class="icon-btn" type="button" title="复制当前 QA">C</button>
+        <button id="expandQA" class="icon-btn" type="button" title="放大/还原">□</button>
+        <button id="closeQA" class="icon-btn" type="button" title="关闭">×</button>
+      </div>
+    </div>
+    <div id="qaBody" class="inspector-body"></div>
+  </section>
+
+  <div id="contextMenu" class="context-menu">
+    <button id="addQAFromSelection" type="button">添加 QA</button>
+  </div>
+
+  <div id="qaEditorBackdrop" class="modal-backdrop" role="dialog" aria-modal="true" aria-label="添加自定义 QA">
+    <div class="qa-editor">
+      <h3>添加自定义 QA</h3>
+      <p class="small-note">该 QA 会绑定到你选中的文本。后续点击高亮文本即可查看。</p>
+      <div id="selectedPreview" class="selected-preview"></div>
+      <div class="field">
+        <label for="customQuestion">问题</label>
+        <input id="customQuestion" type="text" placeholder="例如：这段逻辑为什么要先 deny 再 ask？">
+      </div>
+      <div class="field">
+        <label for="customAnswer">回答</label>
+        <textarea id="customAnswer" placeholder="可以粘贴 NotebookLM 的回答，也可以写自己的理解。"></textarea>
+      </div>
+      <div class="modal-actions">
+        <button id="cancelCustomQA" class="secondary-btn" type="button">取消</button>
+        <button id="saveCustomQA" class="primary-btn" type="button">保存 QA</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Data files are split out so the HTML stays focused on layout and behavior. -->
+  <script src="./claude-code-qa-data.js"></script>
+  <script src="./claude-code-source-index.js"></script>
+  <script src="./chapters/chapter-01-harness.js"></script>
+  <script src="./chapters/chapter-02-startup.js"></script>
+  <script src="./chapters/chapter-03-agent-loop.js"></script>
+  <script src="./chapters/chapter-04-context.js"></script>
+  <script src="./chapters/chapter-05-tools.js"></script>
+  <script src="./chapters/chapter-06-permissions-hooks.js"></script>
+  <script src="./chapters/chapter-07-bash-fileedit.js"></script>
+  <script src="./chapters/chapter-08-memory.js"></script>
+  <script src="./chapters/chapter-09-multi-agent.js"></script>
+  <script src="./chapters/chapter-10-remote-bridge.js"></script>
+  <script src="./chapters/chapter-11-ui-mcp-skills.js"></script>
+  <script src="./chapters/chapter-12-settings-telemetry.js"></script>
+  <script>
+    const STORAGE_KEYS = {
+      progress: "ccWalkthrough.progress.v1",
+      customQA: "ccWalkthrough.customQA.v1",
+      level: "ccWalkthrough.level.v1",
+      lastChapter: "ccWalkthrough.lastChapter.v1"
+    };
+
+    const sourceIndex = window.CC_WALKTHROUGH_SOURCE_INDEX || [];
+    const qaGroups = window.CC_WALKTHROUGH_QA_GROUPS || {};
+    const chapters = window.CC_WALKTHROUGH_CHAPTERS || [];
+    const lessonExtensions = window.CC_WALKTHROUGH_LESSON_EXTENSIONS || {};
+    const SELECTION_CONTEXT_CHARS = 40;
+
+    const appState = {
+      activeChapter: localStorage.getItem(STORAGE_KEYS.lastChapter) || "home",
+      level: localStorage.getItem(STORAGE_KEYS.level) || "beginner",
+      progress: readJSON(STORAGE_KEYS.progress, {}),
+      customQA: readJSON(STORAGE_KEYS.customQA, []),
+      pendingSelection: null,
+      currentSourceId: null,
+      stateFileHandle: null,
+      lastQAText: ""
+    };
+
+    const $ = (selector, root = document) => root.querySelector(selector);
+    const $$ = (selector, root = document) => Array.from(root.querySelectorAll(selector));
+
+    function readJSON(key, fallback) {
+      try {
+        const raw = localStorage.getItem(key);
+        return raw ? JSON.parse(raw) : fallback;
+      } catch {
+        return fallback;
+      }
+    }
+
+    function escapeHTML(value) {
+      return String(value).replace(/[&<>"']/g, ch => ({
+        "&": "&amp;",
+        "<": "&lt;",
+        ">": "&gt;",
+        "\"": "&quot;",
+        "'": "&#39;"
+      }[ch]));
+    }
+
+    function findSource(id) {
+      return sourceIndex.find(item => item.id === id);
+    }
+
+    function renderSourceChip(id, extraClass = "") {
+      const source = findSource(id);
+      if (!source) return "";
+      const classes = ["source-chip", extraClass].filter(Boolean).join(" ");
+      return `<button class="${classes}" type="button" data-source="${escapeHTML(source.id)}">${escapeHTML(source.title)}</button>`;
+    }
+
+    function renderQASourceStrip(group) {
+      if (!Array.isArray(group.sources) || !group.sources.length) return "";
+      const chips = group.sources.map(id => renderSourceChip(id)).filter(Boolean).join("");
+      if (!chips) return "";
+      return `
+        <div class="qa-source-strip">
+          <div class="qa-source-strip-label">相关源码</div>
+          <div class="qa-source-strip-items">${chips}</div>
+        </div>
+      `;
+    }
+
+    function saveState() {
+      localStorage.setItem(STORAGE_KEYS.progress, JSON.stringify(appState.progress));
+      localStorage.setItem(STORAGE_KEYS.customQA, JSON.stringify(appState.customQA));
+      localStorage.setItem(STORAGE_KEYS.level, appState.level);
+      localStorage.setItem(STORAGE_KEYS.lastChapter, appState.activeChapter);
+      persistStateFile();
+    }
+
+    async function persistStateFile() {
+      if (!appState.stateFileHandle) return;
+      try {
+        const writable = await appState.stateFileHandle.createWritable();
+        await writable.write(JSON.stringify(buildExportState(), null, 2));
+        await writable.close();
+        $("#stateModeNote").textContent = "已连接记录文件夹：学习记录会同步写入 claude-code-walkthrough-state.json。";
+      } catch (error) {
+        $("#stateModeNote").textContent = "记录文件夹写入失败，已保留浏览器本地记录。";
+      }
+    }
+
+    function buildExportState() {
+      return {
+        version: 1,
+        exportedAt: new Date().toISOString(),
+        progress: appState.progress,
+        customQA: appState.customQA,
+        level: appState.level,
+        lastChapter: appState.activeChapter
+      };
+    }
+
+    function init() {
+      document.body.dataset.level = appState.level;
+      renderNav();
+      renderCurrent();
+      renderProgress();
+      setDifficultyActive();
+      bindEvents();
+    }
+
+    function bindEvents() {
+      document.addEventListener("click", event => {
+        const nav = event.target.closest("[data-nav]");
+        if (nav) {
+          navigate(nav.dataset.nav);
+          return;
+        }
+
+        const sourceButton = event.target.closest("[data-source]");
+        if (sourceButton) {
+          openSource(sourceButton.dataset.source);
+          return;
+        }
+
+        const qaButton = event.target.closest("[data-qa]");
+        if (qaButton) {
+          openQA(qaButton.dataset.qa);
+          return;
+        }
+
+        const custom = event.target.closest("[data-custom-qa]");
+        if (custom) {
+          openCustomQA(custom.dataset.customQa);
+          return;
+        }
+
+        const levelButton = event.target.closest(".difficulty button[data-level]");
+        if (levelButton) {
+          appState.level = levelButton.dataset.level;
+          document.body.dataset.level = appState.level;
+          setDifficultyActive();
+          saveState();
+          return;
+        }
+
+        if (!event.target.closest("#contextMenu")) {
+          hideContextMenu();
+        }
+      });
+
+      document.addEventListener("change", event => {
+        const checkbox = event.target.closest("[data-progress-section]");
+        if (!checkbox) return;
+        appState.progress[checkbox.dataset.progressSection] = checkbox.checked;
+        saveState();
+        renderNav();
+        renderProgress();
+      });
+
+      document.addEventListener("contextmenu", event => {
+        const targetArea = event.target.closest(".section-body, #sourceSnippet");
+        if (!targetArea) return;
+        const selection = window.getSelection();
+        const selectionData = captureSelection(targetArea, selection);
+        if (!selectionData) return;
+        event.preventDefault();
+        const section = event.target.closest("[data-section-id]");
+        const isSourceSelection = Boolean(event.target.closest("#sourceSnippet"));
+        const lessonContainerIndex = isSourceSelection ? null : getLessonBodyIndex(targetArea);
+        appState.pendingSelection = {
+          text: selectionData.text,
+          anchor: {
+            ...selectionData.anchor,
+            scope: isSourceSelection ? "source" : "lesson",
+            containerIndex: lessonContainerIndex
+          },
+          chapterId: appState.activeChapter,
+          sectionId: section ? section.dataset.sectionId : null,
+          scope: isSourceSelection ? "source" : "lesson",
+          sourceId: isSourceSelection ? appState.currentSourceId : null
+        };
+        showContextMenu(event.clientX, event.clientY);
+      });
+
+      $("#sourceSearch").addEventListener("input", renderSearch);
+      $("#sourceSearch").addEventListener("focus", renderSearch);
+      $("#closeSource").addEventListener("click", () => $("#sourcePanel").classList.remove("open"));
+      $("#expandSource").addEventListener("click", () => $("#sourcePanel").classList.toggle("expanded"));
+      $("#copySource").addEventListener("click", () => copyText($("#sourceSnippet").innerText));
+      $("#closeQA").addEventListener("click", () => $("#qaPanel").classList.remove("open"));
+      $("#expandQA").addEventListener("click", () => $("#qaPanel").classList.toggle("expanded"));
+      $("#copyQA").addEventListener("click", () => copyText(appState.lastQAText || $("#qaBody").innerText));
+      $("#addQAFromSelection").addEventListener("click", openQAEditor);
+      $("#cancelCustomQA").addEventListener("click", closeQAEditor);
+      $("#saveCustomQA").addEventListener("click", saveCustomQA);
+      $("#clearState").addEventListener("click", clearLocalState);
+      $("#exportState").addEventListener("click", exportState);
+      $("#importStateButton").addEventListener("click", () => $("#importStateFile").click());
+      $("#importStateFile").addEventListener("change", importState);
+      $("#connectStateDir").addEventListener("click", connectStateDir);
+    }
+
+    function navigate(id) {
+      appState.activeChapter = id;
+      saveState();
+      renderNav();
+      renderCurrent();
+      renderProgress();
+      window.scrollTo({ top: 0, behavior: "smooth" });
+    }
+
+    function renderNav() {
+      const nav = $("#chapterNav");
+      const buttons = [
+        `<button class="nav-button ${appState.activeChapter === "home" ? "active" : ""}" data-nav="home" type="button">
+          <span class="nav-index">0</span><span class="nav-label">主页 / 学习路线</span><span class="nav-count">总览</span>
+        </button>`
+      ];
+
+      chapters.forEach((chapter, index) => {
+        const done = chapter.sections.filter(section => appState.progress[section.id]).length;
+        buttons.push(`<button class="nav-button ${appState.activeChapter === chapter.id ? "active" : ""}" data-nav="${chapter.id}" type="button">
+          <span class="nav-index">${index + 1}</span>
+          <span class="nav-label">${escapeHTML(chapter.title.replace(/^第 \d+ 章：/, ""))}</span>
+          <span class="nav-count">${done}/${chapter.sections.length}</span>
+        </button>`);
+      });
+      nav.innerHTML = buttons.join("");
+    }
+
+    function renderCurrent() {
+      if (appState.activeChapter === "home" || !chapters.some(c => c.id === appState.activeChapter)) {
+        appState.activeChapter = "home";
+        renderHome();
+        renderReview(null);
+        return;
+      }
+
+      const chapter = chapters.find(c => c.id === appState.activeChapter);
+      $("#app").innerHTML = `
+        <article class="chapter">
+          <div class="hero">
+            <div class="eyebrow">循序渐进讲解区</div>
+            <h2>${escapeHTML(chapter.title)}</h2>
+            <p class="chapter-intro">${escapeHTML(chapter.subtitle)}</p>
+          </div>
+          ${chapter.sections.map(renderSection).join("")}
+        </article>
+      `;
+      renderReview(chapter);
+      applyLessonHighlights();
+    }
+
+    function renderHome() {
+      $("#app").innerHTML = `
+        <section class="hero">
+          <div class="eyebrow">学习入口</div>
+          <h2>按源码主线读 Claude Code，而不是按目录硬啃</h2>
+          <p>这份网页把总结稿、Claude Code 本地源码和教学准则合成一条学习路线：先讲为什么，再看精简源码，最后用 QA 和小检查确认理解。蓝色文字打开 QA，绿色文字打开源码弹窗。所有文本都可复制。</p>
+        </section>
+
+        <section class="section">
+          <div class="section-header">
+            <div>
+              <h3>使用方式</h3>
+              <div class="section-meta">
+                <span class="pill">先总览</span>
+                <span class="pill">再看源码</span>
+                <span class="pill">最后做 QA</span>
+              </div>
+            </div>
+          </div>
+          <div class="section-body">
+            <p>顶部可切换新手、进阶、资深难度。新手模式减少术语密度，进阶模式增加边界解释，资深模式补充缓存、安全和分布式细节。</p>
+            <p>每个小节右侧的完成状态完全由你手动勾选。关闭网页后再次打开，会保留浏览器本地进度；如果浏览器支持文件夹访问，也可以点击“连接记录文件夹”，把记录同步成 JSON 文件。</p>
+            <p>选中讲解区或源码弹窗中的任意文字，右键添加自定义 QA。保存后，页面会按选中文本高亮绑定，下次点击即可查看。</p>
+          </div>
+        </section>
+
+        <section class="section">
+          <div class="section-header"><h3>章节路线</h3></div>
+          <div class="route-grid">
+            ${chapters.map((chapter, index) => `
+              <button class="route-card" type="button" data-nav="${chapter.id}">
+                <strong>${index + 1}. ${escapeHTML(chapter.title)}</strong>
+                <span>${escapeHTML(chapter.subtitle)}</span>
+              </button>
+            `).join("")}
+          </div>
+        </section>
+
+        <section class="section">
+          <div class="section-header"><h3>和 NotebookLM 的配合方式</h3></div>
+          <div class="section-body">
+            <p>本网页内置的是 Codex 设计的问题和已整理进系统预设 QA 的 NotebookLM 回答。根目录仍保留 Markdown 问题分组，后续如果想让 NotebookLM 重新回答或补答，可以继续逐组复制使用。</p>
+            <p>分组遵守输出限制：短答题每组 2 到 3 题；预计长答的源码原理题单独成组，避免回答被截断。你也可以把新的回答通过右键自定义 QA 绑定到具体文本。</p>
+            <div class="learning-check"><strong>开始前小检查</strong>你更想先掌握整体架构，还是先掌握工具/权限这类实用模块？选择后从对应章节开始也可以。</div>
+          </div>
+        </section>
+      `;
+      applyLessonHighlights();
+    }
+
+    function renderSupplement(sectionId) {
+      const lesson = lessonExtensions[sectionId];
+      if (!lesson) return "";
+
+      const renderList = items => items.map(item => `<li>${escapeHTML(item)}</li>`).join("");
+      const reading = lesson.reading.map(item => `
+        <li>
+          <button class="read-source" type="button" data-source="${item.source}">${escapeHTML(item.label)}</button>
+          <div class="small-note">${escapeHTML(item.note)}</div>
+        </li>
+      `).join("");
+
+      return `
+        <div class="deep-dive">
+          <div class="deep-label">扩展带读</div>
+          <p>${escapeHTML(lesson.framing)}</p>
+          <div class="lesson-columns">
+            <div class="teach-block">
+              <h4>核心拆解</h4>
+              <ul>${renderList(lesson.points)}</ul>
+            </div>
+            <div class="teach-block">
+              <h4>源码阅读路径</h4>
+              <ul class="source-reading-list">${reading}</ul>
+            </div>
+            <div class="teach-block">
+              <h4>常见误区</h4>
+              <ul>${renderList(lesson.pitfalls)}</ul>
+            </div>
+            <div class="teach-block">
+              <h4>带读节奏</h4>
+              <ol>
+                <li>先用本节第一段解释“为什么要有这个模块”。</li>
+                <li>再点源码按钮，只看弹窗里的精简逻辑。</li>
+                <li>最后回答本节小检查，把结论写成自己的 QA。</li>
+              </ol>
+            </div>
+          </div>
+          <div class="practice-line"><strong>实操任务</strong>${escapeHTML(lesson.practice)}</div>
+        </div>
+      `;
+    }
+
+    function renderSection(section) {
+      return `
+        <section class="section" data-section-id="${section.id}">
+          <div class="section-header">
+            <div>
+              <h3>${escapeHTML(section.title)}</h3>
+              <div class="section-meta">
+                <span class="pill">讲解</span>
+                <span class="pill">${section.sources.length} 个源码锚点</span>
+                <span class="pill">${section.qas.length} 组 QA</span>
+              </div>
+            </div>
+            <label class="complete-toggle">
+              <input type="checkbox" data-progress-section="${section.id}" ${appState.progress[section.id] ? "checked" : ""}>
+              已完成
+            </label>
+          </div>
+          <div class="section-body">${section.html}${renderSupplement(section.id)}</div>
+          <div class="source-strip">
+            ${section.sources.map(id => {
+              return renderSourceChip(id);
+            }).join("")}
+            ${section.qas.map(id => {
+              const item = qaGroups[id];
+              return item ? `<button class="source-chip qa-chip" type="button" data-qa="${id}">${escapeHTML(item.ref)}</button>` : "";
+            }).join("")}
+          </div>
+        </section>
+      `;
+    }
+
+    function renderReview(chapter) {
+      const review = $("#chapterReview");
+      if (!chapter) {
+        review.innerHTML = [
+          "<div class='review-item'>先选难度，再从章节路线进入。</div>",
+          "<div class='review-item'>绿色按钮打开源码，蓝色按钮打开 QA。</div>",
+          "<div class='review-item'>右键选中文本可添加自己的 QA。</div>"
+        ].join("");
+        return;
+      }
+      review.innerHTML = chapter.review.map(item => `<div class="review-item">${escapeHTML(item)}</div>`).join("");
+    }
+
+    function renderProgress() {
+      const allSections = chapters.flatMap(chapter => chapter.sections);
+      const done = allSections.filter(section => appState.progress[section.id]).length;
+      const percent = allSections.length ? Math.round(done / allSections.length * 100) : 0;
+      $("#progressFill").style.width = `${percent}%`;
+      $("#progressDetail").innerHTML = `<span>${done}/${allSections.length} 小节</span><span>${percent}%</span>`;
+    }
+
+    function setDifficultyActive() {
+      $$(".difficulty button[data-level]").forEach(button => {
+        button.classList.toggle("active", button.dataset.level === appState.level);
+      });
+    }
+
+    function openSource(id) {
+      const source = findSource(id);
+      if (!source) return;
+      appState.currentSourceId = id;
+      $("#qaPanel").classList.remove("open");
+      $("#sourceTitle").textContent = source.title;
+      $("#sourceSubtitle").textContent = source.topic;
+      $("#sourceFile").textContent = source.file;
+      $("#sourceLines").textContent = source.lines;
+      $("#sourceTopic").textContent = source.topic;
+      $("#sourceSnippet").textContent = source.snippet;
+      $("#sourcePanel").classList.add("open");
+      applySourceHighlights();
+    }
+
+    function openQA(id) {
+      const group = qaGroups[id];
+      if (!group) return;
+      $("#sourcePanel").classList.remove("open");
+      $("#qaTitle").textContent = group.title;
+      $("#qaSubtitle").textContent = `${group.ref} · 回答方：NotebookLM`;
+      const relatedCustom = appState.customQA.filter(item => {
+        return item.chapterId === appState.activeChapter && (!item.sectionId || getCurrentSectionIds().includes(item.sectionId));
+      });
+      const answers = Array.isArray(group.answers) ? group.answers : [];
+      const hasNotebookAnswers = answers.some(answer => String(answer || "").trim());
+      const questionText = group.questions.map((q, index) => {
+        const answer = answers[index] ? `\nA${index + 1}: ${answers[index]}` : "";
+        return `Q${index + 1}: ${q}${answer}`;
+      }).join("\n\n");
+      appState.lastQAText = `${group.title}\n${questionText}`;
+      $("#qaBody").innerHTML = `
+        <div class="qa-card">
+          <h4>默认问题组</h4>
+          <p class="small-note">${hasNotebookAnswers ? "以下回答来自 notebookAns.md 中的 NotebookLM 回答，保留为系统预设 QA。" : "这些问题已在根目录 Markdown 中分组，适合复制给 NotebookLM。这里不替代 NotebookLM 给答案。"}</p>
+          ${renderQASourceStrip(group)}
+          ${group.questions.map((question, index) => `
+            <p><strong>Q${index + 1}：</strong>${escapeHTML(question)}</p>
+            ${answers[index]
+              ? `<div class="answer-text"><strong>A${index + 1}：</strong>${formatAnswer(answers[index])}</div>`
+              : `<div class="answer-placeholder"><strong>A${index + 1}：</strong>待 NotebookLM 回答。拿到回答后，可选中相关讲解文字右键添加为自定义 QA。</div>`}
+          `).join("")}
+        </div>
+        <div class="qa-card">
+          <h4>本章自定义 QA</h4>
+          ${relatedCustom.length ? relatedCustom.map(renderCustomQA).join("") : "<p class='small-note'>还没有自定义 QA。选中文字右键添加。</p>"}
+        </div>
+      `;
+      $("#qaPanel").classList.add("open");
+    }
+
+    function formatInlineMarkdown(text) {
+      return escapeHTML(text)
+        .replace(/`([^`]+)`/g, "<code>$1</code>")
+        .replace(/\*\*([^*]+)\*\*/g, "<strong>$1</strong>")
+        .replace(/\[\[source:([A-Za-z0-9_.:-]+)(?:\|([^\]\n]+))?\]\]/g, (match, id, label) => {
+          const source = findSource(id);
+          if (!source) return match;
+          const text = label && label.trim() ? label.trim() : escapeHTML(source.title);
+          return `<button class="inline-action source-trigger" type="button" data-source="${escapeHTML(source.id)}">${text}</button>`;
+        });
+    }
+
+    function formatAnswer(text) {
+      const lines = String(text || "").replace(/\r\n?/g, "\n").split("\n");
+      const html = [];
+      let paragraph = [];
+      let listType = null;
+      let listItems = [];
+
+      const flushParagraph = () => {
+        if (!paragraph.length) return;
+        html.push(`<p>${paragraph.map(formatInlineMarkdown).join("<br>")}</p>`);
+        paragraph = [];
+      };
+
+      const flushList = () => {
+        if (!listItems.length || !listType) return;
+        html.push(`<${listType}>${listItems.map(item => `<li>${formatInlineMarkdown(item)}</li>`).join("")}</${listType}>`);
+        listItems = [];
+        listType = null;
+      };
+
+      lines.forEach(line => {
+        if (!line.trim()) {
+          flushParagraph();
+          flushList();
+          return;
+        }
+
+        const unordered = line.match(/^\s*[-*+]\s+(.+)$/);
+        if (unordered) {
+          flushParagraph();
+          if (listType && listType !== "ul") flushList();
+          listType = "ul";
+          listItems.push(unordered[1]);
+          return;
+        }
+
+        const ordered = line.match(/^\s*\d+[.)]\s+(.+)$/);
+        if (ordered) {
+          flushParagraph();
+          if (listType && listType !== "ol") flushList();
+          listType = "ol";
+          listItems.push(ordered[1]);
+          return;
+        }
+
+        flushList();
+        paragraph.push(line);
+      });
+
+      flushParagraph();
+      flushList();
+      return html.join("");
+    }
+
+    function openCustomQA(id) {
+      const item = appState.customQA.find(qa => qa.id === id);
+      if (!item) return;
+      $("#sourcePanel").classList.remove("open");
+      $("#qaTitle").textContent = "自定义 QA";
+      $("#qaSubtitle").textContent = item.scope === "source" ? `绑定源码：${item.sourceId}` : "绑定讲解文本";
+      appState.lastQAText = `选中文本：${item.text}\nQ: ${item.question}\nA: ${item.answer}`;
+      $("#qaBody").innerHTML = `
+        <div class="qa-card">
+          <h4>绑定文本</h4>
+          <p>${escapeHTML(item.text)}</p>
+        </div>
+        ${renderCustomQA(item)}
+      `;
+      $("#qaPanel").classList.add("open");
+    }
+
+    function renderCustomQA(item) {
+      return `
+        <div class="qa-card">
+          <p><strong>选中：</strong>${escapeHTML(item.text)}</p>
+          <div class="qa-markdown"><strong>Q：</strong>${formatAnswer(item.question)}</div>
+          <div class="answer-text"><strong>A：</strong>${formatAnswer(item.answer)}</div>
+          <p class="small-note">创建时间：${escapeHTML(new Date(item.createdAt).toLocaleString())}</p>
+        </div>
+      `;
+    }
+
+    function getCurrentSectionIds() {
+      const chapter = chapters.find(item => item.id === appState.activeChapter);
+      return chapter ? chapter.sections.map(section => section.id) : [];
+    }
+
+    function captureSelection(container, selection) {
+      if (!selection || selection.rangeCount === 0) return null;
+      const range = selection.getRangeAt(0);
+      if (range.collapsed) return null;
+      if (!container.contains(range.startContainer) || !container.contains(range.endContainer)) return null;
+
+      const rawText = range.toString();
+      const text = rawText.trim();
+      if (!text) return null;
+
+      const leadingWhitespace = rawText.match(/^\s*/)[0].length;
+      const trailingWhitespace = rawText.match(/\s*$/)[0].length;
+      const startOffset = getTextOffset(container, range.startContainer, range.startOffset) + leadingWhitespace;
+      const endOffset = getTextOffset(container, range.endContainer, range.endOffset) - trailingWhitespace;
+      if (endOffset <= startOffset) return null;
+
+      const containerText = container.textContent || "";
+      return {
+        text,
+        anchor: {
+          version: 1,
+          startOffset,
+          endOffset,
+          textLength: endOffset - startOffset,
+          containerTextLength: containerText.length,
+          contextBefore: containerText.slice(Math.max(0, startOffset - SELECTION_CONTEXT_CHARS), startOffset),
+          contextAfter: containerText.slice(endOffset, endOffset + SELECTION_CONTEXT_CHARS)
+        }
+      };
+    }
+
+    function getTextOffset(container, node, offset) {
+      const range = document.createRange();
+      range.selectNodeContents(container);
+      range.setEnd(node, offset);
+      return range.toString().length;
+    }
+
+    function getLessonBodyIndex(container) {
+      return $$(".section-body", $("#app")).indexOf(container);
+    }
+
+    function findLessonHighlightContainer(item) {
+      if (item.sectionId) {
+        const section = $$("[data-section-id]", $("#app")).find(node => node.dataset.sectionId === item.sectionId);
+        const body = section ? $(".section-body", section) : null;
+        if (body) return body;
+      }
+      const index = item.anchor && Number.isInteger(item.anchor.containerIndex) ? item.anchor.containerIndex : -1;
+      if (index >= 0) {
+        const body = $$(".section-body", $("#app"))[index];
+        if (body) return body;
+      }
+      return $("#app");
+    }
+
+    function renderSearch() {
+      const query = $("#sourceSearch").value.trim().toLowerCase();
+      const panel = $("#searchResults");
+      if (!query) {
+        panel.classList.remove("open");
+        panel.innerHTML = "";
+        return;
+      }
+      const hits = sourceIndex.filter(item => {
+        return [item.title, item.topic, item.file, item.lines, item.snippet]
+          .join(" ")
+          .toLowerCase()
+          .includes(query);
+      }).slice(0, 12);
+      panel.innerHTML = hits.length
+        ? hits.map(item => `
+          <button class="search-hit" type="button" data-source="${item.id}">
+            <strong>${escapeHTML(item.title)}</strong>
+            <small>${escapeHTML(item.file)} · ${escapeHTML(item.lines)}</small>
+          </button>
+        `).join("")
+        : "<div class='small-note' style='padding:10px'>没有找到匹配源码。试试 queryLoop、permission、Hook、Memory、MCP。</div>";
+      panel.classList.add("open");
+    }
+
+    function showContextMenu(x, y) {
+      const menu = $("#contextMenu");
+      menu.style.left = `${Math.min(x, window.innerWidth - 180)}px`;
+      menu.style.top = `${Math.min(y, window.innerHeight - 52)}px`;
+      menu.classList.add("open");
+    }
+
+    function hideContextMenu() {
+      $("#contextMenu").classList.remove("open");
+    }
+
+    function openQAEditor() {
+      hideContextMenu();
+      if (!appState.pendingSelection) return;
+      $("#selectedPreview").textContent = appState.pendingSelection.text;
+      $("#customQuestion").value = "";
+      $("#customAnswer").value = "";
+      $("#qaEditorBackdrop").classList.add("open");
+      $("#customQuestion").focus();
+    }
+
+    function closeQAEditor() {
+      $("#qaEditorBackdrop").classList.remove("open");
+    }
+
+    function saveCustomQA() {
+      const question = $("#customQuestion").value.trim();
+      const answer = $("#customAnswer").value.trim();
+      if (!appState.pendingSelection || !question || !answer) {
+        alert("请填写问题和回答。");
+        return;
+      }
+      const item = {
+        id: `custom-${Date.now()}-${Math.random().toString(16).slice(2)}`,
+        text: appState.pendingSelection.text.slice(0, 1000),
+        question,
+        answer,
+        chapterId: appState.pendingSelection.chapterId,
+        sectionId: appState.pendingSelection.sectionId,
+        scope: appState.pendingSelection.scope,
+        sourceId: appState.pendingSelection.sourceId,
+        anchor: appState.pendingSelection.anchor,
+        createdAt: new Date().toISOString()
+      };
+      appState.customQA.push(item);
+      saveState();
+      closeQAEditor();
+      if (item.scope === "source") applySourceHighlights();
+      else applyLessonHighlights();
+      openCustomQA(item.id);
+    }
+
+    function applyLessonHighlights() {
+      const root = $("#app");
+      if (!root) return;
+      clearCustomHighlights(root);
+      const qas = appState.customQA.filter(item => item.scope === "lesson" && item.chapterId === appState.activeChapter);
+      const grouped = new Map();
+      qas.forEach(item => {
+        const container = findLessonHighlightContainer(item);
+        if (!container) return;
+        if (!grouped.has(container)) grouped.set(container, []);
+        grouped.get(container).push(item);
+      });
+      grouped.forEach((items, container) => applyHighlights(container, items, false, false));
+    }
+
+    function applySourceHighlights() {
+      const container = $("#sourceSnippet");
+      const qas = appState.customQA.filter(item => item.scope === "source" && item.sourceId === appState.currentSourceId);
+      applyHighlights(container, qas, true);
+    }
+
+    function applyHighlights(container, qas, allowCode, shouldClear = true) {
+      if (!container) return;
+      if (shouldClear) clearCustomHighlights(container);
+      if (!qas.length) return;
+      qas.forEach(item => {
+        const range = resolveHighlightRange(container, item);
+        if (!range) return;
+        highlightRange(container, range, item, allowCode);
+      });
+    }
+
+    function clearCustomHighlights(container) {
+      $$(".custom-qa-highlight", container).forEach(mark => {
+        const parent = mark.parentNode;
+        if (!parent) return;
+        while (mark.firstChild) parent.insertBefore(mark.firstChild, mark);
+        parent.removeChild(mark);
+        parent.normalize();
+      });
+    }
+
+    function resolveHighlightRange(container, item) {
+      const text = String(item.text || "").trim();
+      if (text.length < 2) return null;
+      const containerText = container.textContent || "";
+      const anchor = item.anchor || {};
+      if (Number.isInteger(anchor.startOffset) && Number.isInteger(anchor.endOffset)) {
+        const startOffset = anchor.startOffset;
+        const endOffset = anchor.endOffset;
+        if (startOffset >= 0 && endOffset > startOffset && endOffset <= containerText.length) {
+          const selected = containerText.slice(startOffset, endOffset);
+          if (selected === text || selected.trim() === text || selected.startsWith(text)) {
+            return { startOffset, endOffset };
+          }
+        }
+        const contextual = findContextualRange(containerText, text, anchor);
+        if (contextual) return contextual;
+      }
+      return findLegacyRange(containerText, text);
+    }
+
+    function findContextualRange(containerText, text, anchor) {
+      const before = String(anchor.contextBefore || "");
+      const after = String(anchor.contextAfter || "");
+      if (!before && !after) return null;
+
+      let best = null;
+      let index = containerText.indexOf(text);
+      while (index >= 0) {
+        const end = index + text.length;
+        const beforeText = containerText.slice(Math.max(0, index - before.length), index);
+        const afterText = containerText.slice(end, end + after.length);
+        const beforeMatches = before ? beforeText === before : true;
+        const afterMatches = after ? afterText === after : true;
+        if (beforeMatches && afterMatches) {
+          return { startOffset: index, endOffset: end };
+        }
+
+        const score = suffixMatchLength(beforeText, before) + prefixMatchLength(afterText, after);
+        if (!best || score > best.score) {
+          best = { score, startOffset: index, endOffset: end };
+        }
+        index = containerText.indexOf(text, index + text.length);
+      }
+
+      if (!best) return null;
+      const requiredScore = Math.min(12, before.length + after.length);
+      return best.score >= requiredScore ? { startOffset: best.startOffset, endOffset: best.endOffset } : null;
+    }
+
+    function findLegacyRange(containerText, text) {
+      const index = containerText.indexOf(text);
+      return index >= 0 ? { startOffset: index, endOffset: index + text.length } : null;
+    }
+
+    function suffixMatchLength(value, suffix) {
+      const max = Math.min(value.length, suffix.length);
+      for (let length = max; length > 0; length -= 1) {
+        if (value.slice(value.length - length) === suffix.slice(suffix.length - length)) return length;
+      }
+      return 0;
+    }
+
+    function prefixMatchLength(value, prefix) {
+      const max = Math.min(value.length, prefix.length);
+      for (let length = max; length > 0; length -= 1) {
+        if (value.slice(0, length) === prefix.slice(0, length)) return length;
+      }
+      return 0;
+    }
+
+    function highlightRange(container, range, item, allowCode) {
+      const textNodes = collectTextNodes(container);
+      let position = 0;
+      textNodes.forEach(node => {
+        const value = node.nodeValue || "";
+        const nodeStart = position;
+        const nodeEnd = nodeStart + value.length;
+        position = nodeEnd;
+        if (nodeEnd <= range.startOffset || nodeStart >= range.endOffset) return;
+        if (!canHighlightTextNode(node, allowCode)) return;
+
+        const localStart = Math.max(0, range.startOffset - nodeStart);
+        const localEnd = Math.min(value.length, range.endOffset - nodeStart);
+        if (localEnd <= localStart) return;
+        wrapTextNode(node, localStart, localEnd, item.id);
+      });
+    }
+
+    function collectTextNodes(container) {
+      const nodes = [];
+      const walker = document.createTreeWalker(container, NodeFilter.SHOW_TEXT);
+      let node = walker.nextNode();
+      while (node) {
+        nodes.push(node);
+        node = walker.nextNode();
+      }
+      return nodes;
+    }
+
+    function canHighlightTextNode(node, allowCode) {
+      const parent = node.parentElement;
+      if (!parent) return false;
+      if (parent.closest(".custom-qa-highlight, .inline-action, button, input, textarea")) return false;
+      if (!allowCode && parent.closest("pre, code")) return false;
+      return true;
+    }
+
+    function wrapTextNode(node, start, end, id) {
+      const value = node.nodeValue || "";
+      const fragment = document.createDocumentFragment();
+      if (start > 0) fragment.appendChild(document.createTextNode(value.slice(0, start)));
+      const mark = document.createElement("span");
+      mark.className = "custom-qa-highlight";
+      mark.dataset.customQa = id;
+      mark.textContent = value.slice(start, end);
+      fragment.appendChild(mark);
+      if (end < value.length) fragment.appendChild(document.createTextNode(value.slice(end)));
+      node.parentNode.replaceChild(fragment, node);
+    }
+
+    async function copyText(text) {
+      try {
+        await navigator.clipboard.writeText(text);
+      } catch {
+        const area = document.createElement("textarea");
+        area.value = text;
+        document.body.appendChild(area);
+        area.select();
+        document.execCommand("copy");
+        area.remove();
+      }
+    }
+
+    function clearLocalState() {
+      if (!confirm("确认清空本地学习记录、自定义 QA 和难度设置？")) return;
+      Object.values(STORAGE_KEYS).forEach(key => localStorage.removeItem(key));
+      appState.progress = {};
+      appState.customQA = [];
+      appState.level = "beginner";
+      appState.activeChapter = "home";
+      document.body.dataset.level = appState.level;
+      saveState();
+      setDifficultyActive();
+      renderNav();
+      renderCurrent();
+      renderProgress();
+    }
+
+    function exportState() {
+      const blob = new Blob([JSON.stringify(buildExportState(), null, 2)], { type: "application/json" });
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement("a");
+      link.href = url;
+      link.download = "claude-code-walkthrough-state.json";
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      URL.revokeObjectURL(url);
+    }
+
+    function importState(event) {
+      const file = event.target.files && event.target.files[0];
+      if (!file) return;
+      const reader = new FileReader();
+      reader.onload = () => {
+        try {
+          const data = JSON.parse(String(reader.result || "{}"));
+          appState.progress = data.progress || {};
+          appState.customQA = Array.isArray(data.customQA) ? data.customQA : [];
+          appState.level = data.level || "beginner";
+          appState.activeChapter = data.lastChapter || "home";
+          document.body.dataset.level = appState.level;
+          saveState();
+          setDifficultyActive();
+          renderNav();
+          renderCurrent();
+          renderProgress();
+        } catch {
+          alert("导入失败：JSON 格式不正确。");
+        }
+      };
+      reader.readAsText(file);
+      event.target.value = "";
+    }
+
+    async function connectStateDir() {
+      if (!("showDirectoryPicker" in window)) {
+        $("#stateModeNote").textContent = "当前浏览器不支持直接连接文件夹；请使用导出/导入 JSON 备份记录。";
+        return;
+      }
+      try {
+        const dir = await window.showDirectoryPicker({ mode: "readwrite" });
+        appState.stateFileHandle = await dir.getFileHandle("claude-code-walkthrough-state.json", { create: true });
+        const file = await appState.stateFileHandle.getFile();
+        const text = await file.text();
+        if (text.trim()) {
+          const data = JSON.parse(text);
+          appState.progress = data.progress || appState.progress;
+          appState.customQA = Array.isArray(data.customQA) ? data.customQA : appState.customQA;
+          appState.level = data.level || appState.level;
+          appState.activeChapter = data.lastChapter || appState.activeChapter;
+        }
+        document.body.dataset.level = appState.level;
+        setDifficultyActive();
+        renderNav();
+        renderCurrent();
+        renderProgress();
+        saveState();
+      } catch (error) {
+        $("#stateModeNote").textContent = "未连接记录文件夹，继续使用浏览器本地记录。";
+      }
+    }
+
+    init();
+  </script>
+</body>
+</html>
