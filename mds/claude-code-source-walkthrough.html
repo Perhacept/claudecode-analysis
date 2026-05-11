@@ -1366,7 +1366,10 @@
       $("#closeSource").addEventListener("click", () => $("#sourcePanel").classList.remove("open"));
       $("#expandSource").addEventListener("click", () => $("#sourcePanel").classList.toggle("expanded"));
       $("#copySource").addEventListener("click", () => copyText($("#sourceSnippet").innerText));
-      $("#closeQA").addEventListener("click", () => $("#qaPanel").classList.remove("open"));
+      $("#closeQA").addEventListener("click", event => {
+        event.stopPropagation();
+        closeQAPanel();
+      });
       $("#expandQA").addEventListener("click", () => $("#qaPanel").classList.toggle("expanded"));
       $("#copyQA").addEventListener("click", () => copyText(appState.lastQAText || $("#qaBody").innerText));
       $("#addQAFromSelection").addEventListener("click", openQAEditor);
@@ -1585,7 +1588,7 @@
       const source = findSource(id);
       if (!source) return;
       appState.currentSourceId = id;
-      $("#qaPanel").classList.remove("open");
+      closeQAPanel();
       $("#sourceTitle").textContent = source.title;
       $("#sourceSubtitle").textContent = source.topic;
       $("#sourceFile").textContent = source.file;
@@ -1600,7 +1603,7 @@
       const group = qaGroups[id];
       if (!group) return;
       $("#sourcePanel").classList.remove("open");
-      delete $("#qaPanel").dataset.customQa;
+      delete $("#qaPanel").dataset.activeCustomQa;
       $("#qaPanel").dataset.qaGroup = id;
       $("#qaTitle").textContent = group.title;
       $("#qaSubtitle").textContent = `${group.ref} · 回答方：NotebookLM`;
@@ -1705,7 +1708,7 @@
       if (!item) return;
       $("#sourcePanel").classList.remove("open");
       delete $("#qaPanel").dataset.qaGroup;
-      $("#qaPanel").dataset.customQa = id;
+      $("#qaPanel").dataset.activeCustomQa = id;
       $("#qaTitle").textContent = "自定义 QA";
       $("#qaSubtitle").textContent = item.scope === "source" ? `绑定源码：${item.sourceId}` : "绑定讲解文本";
       appState.lastQAText = `选中文本：${item.text}\nQ: ${item.question}\nA: ${item.answer}`;
@@ -1717,6 +1720,13 @@
         ${renderCustomQA(item)}
       `;
       $("#qaPanel").classList.add("open");
+    }
+
+    function closeQAPanel() {
+      const panel = $("#qaPanel");
+      panel.classList.remove("open");
+      delete panel.dataset.qaGroup;
+      delete panel.dataset.activeCustomQa;
     }
 
     function renderCustomQA(item) {
@@ -1942,9 +1952,8 @@
       refreshHighlightsForCustomQA(item);
 
       const qaPanel = $("#qaPanel");
-      if (qaPanel.dataset.customQa === id) {
-        qaPanel.classList.remove("open");
-        delete qaPanel.dataset.customQa;
+      if (qaPanel.dataset.activeCustomQa === id) {
+        closeQAPanel();
         return;
       }
       if (qaPanel.dataset.qaGroup) {
