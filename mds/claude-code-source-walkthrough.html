@@ -842,6 +842,48 @@
       margin: 7px 0;
     }
 
+    .answer-text h1,
+    .answer-text h2,
+    .answer-text h3,
+    .answer-text h4,
+    .answer-text h5,
+    .answer-text h6,
+    .qa-markdown h1,
+    .qa-markdown h2,
+    .qa-markdown h3,
+    .qa-markdown h4,
+    .qa-markdown h5,
+    .qa-markdown h6 {
+      margin: 12px 0 7px;
+      color: #163f3a;
+      line-height: 1.35;
+      font-weight: 760;
+    }
+
+    .answer-text h1,
+    .qa-markdown h1 {
+      font-size: 18px;
+    }
+
+    .answer-text h2,
+    .qa-markdown h2 {
+      font-size: 17px;
+    }
+
+    .answer-text h3,
+    .qa-markdown h3 {
+      font-size: 16px;
+    }
+
+    .answer-text h4,
+    .answer-text h5,
+    .answer-text h6,
+    .qa-markdown h4,
+    .qa-markdown h5,
+    .qa-markdown h6 {
+      font-size: 15px;
+    }
+
     .answer-text ul,
     .answer-text ol,
     .qa-markdown ul,
@@ -1638,8 +1680,14 @@
     }
 
     function formatInlineMarkdown(text) {
-      return escapeHTML(text)
-        .replace(/`([^`]+)`/g, "<code>$1</code>")
+      const codeFragments = [];
+      const withCodeTokens = escapeHTML(text).replace(/`([^`]+)`/g, (match, code) => {
+        const token = `@@CODE_${codeFragments.length}@@`;
+        codeFragments.push(`<code>${code}</code>`);
+        return token;
+      });
+
+      const rendered = withCodeTokens
         .replace(/\*\*([^*]+)\*\*/g, "<strong>$1</strong>")
         .replace(/\[\[source:([A-Za-z0-9_.:-]+)(?:\|([^\]\n]+))?\]\]/g, (match, id, label) => {
           const source = findSource(id);
@@ -1647,14 +1695,18 @@
           const text = label && label.trim() ? label.trim() : escapeHTML(source.title);
           return `<button class="inline-action source-trigger" type="button" data-source="${escapeHTML(source.id)}">${text}</button>`;
         });
+
+      return codeFragments.reduce((html, code, index) => {
+        return html.replace(`@@CODE_${index}@@`, code);
+      }, rendered);
     }
 
     function formatAnswer(text) {
       const lines = String(text || "").replace(/\r\n?/g, "\n").split("\n");
       const html = [];
       let paragraph = [];
-      let listType = null;
-      let listItems = [];
+      let activeList = null;
+      let pendingBlankInList = false;
 
       const flushParagraph = () => {
         if (!paragraph.length) return;
@@ -1663,44 +1715,131 @@
       };
 
       const flushList = () => {
-        if (!listItems.length || !listType) return;
-        html.push(`<${listType}>${listItems.map(item => `<li>${formatInlineMarkdown(item)}</li>`).join("")}</${listType}>`);
-        listItems = [];
-        listType = null;
+        if (!activeList || !activeList.items.length) return;
+        const startAttr = activeList.type === "ol" && activeList.start !== 1 ? ` start="${activeList.start}"` : "";
+        const items = activeList.items
+          .map(item => `<li>${formatListItemContent(item.lines)}</li>`)
+          .join("");
+        html.push(`<${activeList.type}${startAttr}>${items}</${activeList.type}>`);
+        activeList = null;
+        pendingBlankInList = false;
       };
 
       lines.forEach(line => {
-        if (!line.trim()) {
+        const trimmed = line.trim();
+        if (!trimmed) {
+          if (activeList && activeList.items.length) {
+            pendingBlankInList = true;
+          } else {
+            flushParagraph();
+          }
+          return;
+        }
+
+        const listItem = parseTopLevelListItem(line);
+        if (listItem) {
           flushParagraph();
+          if (!activeList || activeList.type !== listItem.type) {
+            flushList();
+            activeList = {
+              type: listItem.type,
+              start: listItem.start || 1,
+              items: []
+            };
+          }
+          activeList.items.push({ lines: [listItem.content] });
+          pendingBlankInList = false;
+          return;
+        }
+
+        if (activeList) {
+          const currentItem = activeList.items[activeList.items.length - 1];
+          const isContinuation = currentItem && (
+            isListContinuation(line) ||
+            (!pendingBlankInList && !parseMarkdownHeading(line))
+          );
+          if (isContinuation) {
+            if (pendingBlankInList && currentItem.lines.length) currentItem.lines.push("");
+            currentItem.lines.push(isListContinuation(line) ? stripListContinuationIndent(line) : trimmed);
+            pendingBlankInList = false;
+            return;
+          }
           flushList();
-          return;
         }
 
-        const unordered = line.match(/^\s*[-*+]\s+(.+)$/);
-        if (unordered) {
+        const heading = parseMarkdownHeading(line);
+        if (heading) {
           flushParagraph();
-          if (listType && listType !== "ul") flushList();
-          listType = "ul";
-          listItems.push(unordered[1]);
+          html.push(`<h${heading.level}>${formatInlineMarkdown(heading.text)}</h${heading.level}>`);
           return;
         }
 
-        const ordered = line.match(/^\s*\d+[.)]\s+(.+)$/);
-        if (ordered) {
-          flushParagraph();
-          if (listType && listType !== "ol") flushList();
-          listType = "ol";
-          listItems.push(ordered[1]);
-          return;
-        }
-
-        flushList();
-        paragraph.push(line);
+        paragraph.push(trimmed);
       });
 
       flushParagraph();
       flushList();
       return html.join("");
+    }
+
+    function formatListItemContent(lines) {
+      const cleaned = trimEmptyMarkdownLines(lines);
+      if (!cleaned.length) return "";
+      if (cleaned.length === 1 && !parseMarkdownHeading(cleaned[0]) && !parseTopLevelListItem(cleaned[0])) {
+        return formatInlineMarkdown(cleaned[0].trim());
+      }
+      return formatAnswer(cleaned.join("\n"));
+    }
+
+    function trimEmptyMarkdownLines(lines) {
+      const cleaned = [...lines];
+      while (cleaned.length && !String(cleaned[0]).trim()) cleaned.shift();
+      while (cleaned.length && !String(cleaned[cleaned.length - 1]).trim()) cleaned.pop();
+      return cleaned;
+    }
+
+    function parseMarkdownHeading(line) {
+      const match = line.match(/^\s{0,3}(#{1,6})\s+(.+)$/);
+      if (!match) return null;
+      return {
+        level: match[1].length,
+        text: match[2].trim().replace(/\s+#+\s*$/, "")
+      };
+    }
+
+    function parseTopLevelListItem(line) {
+      if (countMarkdownIndent(line) > 3) return null;
+      const trimmed = line.trimStart();
+      const unordered = trimmed.match(/^[-*+]\s+(.+)$/);
+      if (unordered) {
+        return {
+          type: "ul",
+          content: unordered[1]
+        };
+      }
+
+      const ordered = trimmed.match(/^(\d+)[.)]\s+(.+)$/);
+      if (!ordered) return null;
+      return {
+        type: "ol",
+        start: Number(ordered[1]) || 1,
+        content: ordered[2]
+      };
+    }
+
+    function isListContinuation(line) {
+      return countMarkdownIndent(line) >= 2;
+    }
+
+    function stripListContinuationIndent(line) {
+      if (line.startsWith("\t")) return line.slice(1);
+      return line.replace(/^ {1,4}/, "");
+    }
+
+    function countMarkdownIndent(line) {
+      const match = line.match(/^[ \t]*/);
+      const indent = match ? match[0] : "";
+      return Array.from(indent).reduce((count, ch) => count + (ch === "\t" ? 4 : 1), 0);
     }
 
     function openCustomQA(id) {
