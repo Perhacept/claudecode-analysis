@@ -1,3 +1,5 @@
+注意： 入口是mds/claude-code-source-walkthrough.html。zip是claude code源码+资料，就不解压传了
+
 # 学习记录文件夹
 
 claudecode-analysis\mds\learning-state
@@ -30,7 +32,7 @@ claudecode-analysis\mds\learning-state
 
 源码索引： `../claude-code-source-index.js`
 
-源码：解压sources下的Claude-Code-main.zip
+claude code源码：解压sources下的Claude-Code-main.zip
 
 互联网高质量文章材料：解压sources下的online-res.zip
 
